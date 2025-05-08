@@ -1,0 +1,119 @@
+name: 'Docker Tests'
+description: 'Standardized PR checks for Docker images'
+inputs:
+  image-name:
+    description: 'Name of the Docker image'
+    required: true
+  dockerfile-path:
+    description: 'Path to the Dockerfile'
+    required: false
+    default: 'Dockerfile'
+  context:
+    description: 'Build Context'
+    required: false
+    default: '.'
+  build-args:
+    description: 'Adds support for Dockerfile build arguments. Ex: "BUILD_UID=1001'
+    required: false
+    default: ''
+  tag-prefix:
+    description: 'Add prefix for generated Docker Tag'
+    required: false
+    default: ''
+  tag-suffix:
+    description: 'Add a suffix for generated Docker Tag'
+    required: false
+    default: ''
+  trivy-severity:
+    description: 'Default failure severity for Trivy checks'
+    required: false
+    default: 'CRITICAL'
+  dockerhub-username:
+    description: 'Docker Hub username'
+    required: true
+  dockerhub-token:
+    description: 'Docker Hub access token'
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Run Hadolint GitHub Action
+      uses: hadolint/hadolint-action@v3.1.0
+      id: hadolint
+      with:
+        dockerfile: ${{ inputs.dockerfile-path }}
+
+    - name: Setup Docker buildx
+      uses: docker/setup-buildx-action@v3
+    
+    - name: Login to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ inputs.dockerhub-username }}
+        password: ${{ inputs.dockerhub-token }}
+
+    - name: Build Docker Image
+      id: build-and-push
+      uses: docker/build-push-action@v6
+      with:
+        context: ${{ inputs.context }}
+        file: ${{ inputs.dockerfile-path }}
+        push: false
+        tags: ${{ inputs.image-name }}:${{ inputs.tag-prefix }}${{ github.event.pull_request.number }}${{ inputs.tag-suffix }}
+        cache-from: type=registry,ref=${{ inputs.image-name }}:cache
+        cache-to: type=registry,mode=max,ref=${{ inputs.image-name }}:cache
+        load: true
+        build-args: |
+          ${{ inputs.build-args }}
+
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      id: trivy
+      with:
+        exit-code: '1'
+        ignore-unfixed: true
+        vuln-type: 'os,library'
+        severity: ${{ inputs.trivy-severity }}
+        image-ref: ${{ inputs.image-name }}:${{ github.event.pull_request.number }}
+        format: 'table'
+        output: 'trivy-results.table'
+      continue-on-error: false
+
+    - name: Prepare Comment
+      id: comment
+      if: always()
+      shell: bash
+      run: |
+        echo "## PR Checks" >> checks.txt
+        echo "<details>" >> checks.txt
+        echo "<summary><h3>Hadolint</h3>: <code>${{ steps.hadolint.outcome }}</code></summary>" >> checks.txt
+        echo "" >> checks.txt
+        echo "\`\`\`diff" >> checks.txt
+        echo "${HADOLINT_RESULTS}" >> checks.txt
+        echo "\`\`\`" >> checks.txt
+        echo "</details>" >> checks.txt
+        echo "<details>" >> checks.txt
+        echo "<summary><h3>Trivy</h3>: <code>${{ steps.trivy.outcome }}</code></summary>" >> checks.txt
+        echo "" >> checks.txt
+        echo "\`\`\`diff" >> checks.txt
+        cat trivy-results.table >> checks.txt
+        echo "\`\`\`" >> checks.txt
+        echo "</details>" >> checks.txt
+
+    - name: Comment failure on pre-commit checks
+      if: always()
+      uses: mshick/add-pr-comment@v2
+      with:
+        message-id: docker-tests
+        refresh-message-position: true
+        message-path: |
+          checks.txt
+
+    - name: Logout from Docker Hub
+      if: always()
+      run: docker logout
+      shell: bash
