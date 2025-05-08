@@ -79,7 +79,7 @@ jobs:
       pull-requests: write  # to be able to comment on released pull requests
     steps:
       - name: Semantic Release
-        uses: qts-cloud/actions/release@main
+        uses: qtsone/actions/release@main
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           ssh-key: ${{ secrets.DEPLOY_KEY }}

@@ -52,7 +52,7 @@ jobs:
       packages: write
     steps:
     - name: Docker Tests
-      uses: qts-cloud/actions/docker/tests@main
+      uses: qtsone/actions/docker/tests@main
       with:
         image-name: <organization>/<image-name>
         # other inputs as needed

@@ -50,7 +50,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Build and Push Docker Image
-      uses: qts-cloud/actions/docker/build@main
+      uses: qtsone/actions/docker/build@main
       with:
         image-name: <organization>/<image-name>
         # other inputs as needed
