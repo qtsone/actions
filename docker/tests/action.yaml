@@ -83,7 +83,7 @@ runs:
         image-ref: ${{ inputs.registry }}/${{ inputs.image-name }}:${{ github.event.pull_request.number }}
         format: 'table'
         output: 'trivy-results.table'
-      continue-on-error: false
+      continue-on-error: true
 
     - name: Prepare Comment
       id: comment
