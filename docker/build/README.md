@@ -1,6 +1,6 @@
-# Docker Build and Push to Docker Hub
+# Docker Build and Push to GitHub Packages
 
-A reusable and customizable GitHub Action for standardized building and pushing of Docker images to Github.
+A reusable and customizable GitHub Action for standardized building and pushing of Docker images to GitHub Packages.
 
 > :warning: **Important**
 > This action should be used `on.push: tags`.
@@ -8,10 +8,10 @@ A reusable and customizable GitHub Action for standardized building and pushing 
 ## Features
 
 - Sets up Docker buildx.
-- Logs in to DockerHub.
+- Logs in to GitHub Container Registry.
 - Generates Docker metadata for tagging.
-- Builds and pushes Docker image to DockerHub with caching.
-- Logs out from DockerHub.
+- Builds and pushes Docker image to GitHub Packages with caching.
+- Logs out from GitHub Container Registry.
 
 ## Usage
 
@@ -24,8 +24,8 @@ A reusable and customizable GitHub Action for standardized building and pushing 
 | Name                | Description                                                                 | Default    |
 |---------------------|-----------------------------------------------------------------------------|------------|
 | `image-name`        | Name of the Docker image.                                                   | (required) |
-| `dockerhub-username`| Dockerhub Username                                                          | (required) |
-| `dockerhub-token`   | DOckerhub Token                                                             | (required) |
+| `github-token`      | GitHub token for authentication                                             | (required) |
+| `registry`          | GitHub Packages registry                                                    | `ghcr.io`  |
 | `dockerfile-path`   | Path to the Dockerfile.                                                     | `Dockerfile` |
 | `context`           | Directory path for Docker build files. Typically the same as Dockerfile.    | `.`        |
 | `build-args`        | Additional build arguments for the Docker build command.                    | `''`       |
@@ -38,7 +38,7 @@ A reusable and customizable GitHub Action for standardized building and pushing 
 ### Example Workflow
 
 ```yaml
-name: Push to Docker Hub
+name: Push to GitHub Packages
 
 on:
   push:
@@ -52,11 +52,9 @@ jobs:
     - name: Build and Push Docker Image
       uses: qts-cloud/actions/docker/build@main
       with:
-        image-name: <dockerhub-username>/<image-name>
+        image-name: <organization>/<image-name>
         # other inputs as needed
-      secrets:
-        DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-        DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        github-token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 ### Notes

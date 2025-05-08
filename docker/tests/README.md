@@ -9,7 +9,7 @@ A reusable and customizable GitHub Action for standardized PR checks on Docker i
 
 - Runs Hadolint for Dockerfile linting.
 - Sets up Docker buildx.
-- Logs in to Amazon ECR.
+- Logs in to GitHub Container Registry.
 - Builds Docker image with caching.
 - Runs Trivy vulnerability scanner on the built image.
 - Prepares a comment summarizing the checks and posts it on the PR.
@@ -25,8 +25,8 @@ A reusable and customizable GitHub Action for standardized PR checks on Docker i
 | Name                | Description                                                                 | Default    |
 |---------------------|-----------------------------------------------------------------------------|------------|
 | `image-name`        | Name of the Docker image.                                                   | (required) |
-| `dockerhub-username`| Dockerhub Username                                                          | (required) |
-| `dockerhub-token`   | DOckerhub Token                                                             | (required) |
+| `github-token`      | GitHub token for authentication                                             | (required) |
+| `registry`          | GitHub Packages registry                                                    | `ghcr.io`  |
 | `dockerfile-path`   | Path to the Dockerfile.                                                     | `Dockerfile` |
 | `context`           | Directory path for Docker build files. Typically the same as Dockerfile.    | `.`        |
 | `build-args`        | Additional build arguments for the Docker build command.                    | `''`       |
@@ -49,15 +49,14 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
+      packages: write
     steps:
     - name: Docker Tests
       uses: qts-cloud/actions/docker/tests@main
       with:
-        image-name: <dockerhub-username>/<image-name>
+        image-name: <organization>/<image-name>
         # other inputs as needed
-      secrets:
-        DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-        DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        github-token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 ### Notes

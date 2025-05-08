@@ -1,5 +1,5 @@
 name: 'Build'
-description: 'Build image and push to Docker Hub'
+description: 'Build image and push to GitHub Packages'
 inputs:
   image-name:
     description: 'Name of the Docker image'
@@ -36,12 +36,13 @@ inputs:
     description: 'Add suffix for latest Docker Tag'
     required: false
     default: 'false'
-  dockerhub-username:
-    description: 'Docker Hub username'
+  github-token:
+    description: 'GitHub token'
     required: true
-  dockerhub-token:
-    description: 'Docker Hub access token'
-    required: true
+  registry:
+    description: 'GitHub Packages registry'
+    required: false
+    default: 'ghcr.io'
 
 runs:
   using: 'composite'
@@ -52,18 +53,19 @@ runs:
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
 
-    - name: Login to Docker Hub
+    - name: Login to GitHub Container Registry
       uses: docker/login-action@v3
       with:
-        username: ${{ inputs.dockerhub-username }}
-        password: ${{ inputs.dockerhub-token }}
+        registry: ${{ inputs.registry }}
+        username: ${{ github.actor }}
+        password: ${{ inputs.github-token }}
 
     - name: Docker metadata
       id: meta
       uses: docker/metadata-action@v5
       with:
         images: |
-          name=${{ inputs.image-name }}
+          ${{ inputs.registry }}/${{ inputs.image-name }}
         tags: |
           type=semver,pattern={{version}}
         flavor: |
@@ -80,12 +82,12 @@ runs:
         push: true
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
-        cache-from: type=registry,ref=${{ inputs.image-name }}:cache
-        cache-to: type=registry,mode=max,ref=${{ inputs.image-name }}:cache
+        cache-from: type=registry,ref=${{ inputs.registry }}/${{ inputs.image-name }}:cache
+        cache-to: type=registry,mode=max,ref=${{ inputs.registry }}/${{ inputs.image-name }}:cache
         build-args: |
           ${{ inputs.build-args }}
 
-    - name: Logout from Docker Hub
+    - name: Logout from GitHub Container Registry
       if: always()
-      run: docker logout
+      run: docker logout ${{ inputs.registry }}
       shell: bash
