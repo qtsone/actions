@@ -102,7 +102,11 @@ runs:
         echo "<summary><h3>Trivy</h3>: <code>${{ steps.trivy.outcome }}</code></summary>" >> checks.txt
         echo "" >> checks.txt
         echo "\`\`\`diff" >> checks.txt
-        cat trivy-results.table >> checks.txt
+        if [ -f "trivy-results.table" ]; then
+          cat trivy-results.table >> checks.txt
+        else
+          echo "No Trivy results available" >> checks.txt
+        fi
         echo "\`\`\`" >> checks.txt
         echo "</details>" >> checks.txt
 
