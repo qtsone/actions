@@ -39,9 +39,9 @@ inputs:
 runs:
   using: 'composite'
   steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
+    # Note: Checkout should be done by the calling workflow
+    # This allows the workflow to prepare files (like generated protos) before Docker build
+    
     - name: Run Hadolint GitHub Action
       uses: hadolint/hadolint-action@v3.1.0
       id: hadolint
