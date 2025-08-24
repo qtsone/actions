@@ -51,6 +51,8 @@ jobs:
       pull-requests: write
       packages: write
     steps:
+    - name: Checkout
+      uses: actions/checkout@v4
     - name: Docker Tests
       uses: qtsone/actions/docker/tests@main
       with:
