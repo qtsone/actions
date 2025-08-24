@@ -72,7 +72,7 @@ on:
 
 jobs:
   release:
-    runs-on: [self-hosted, global-pool]
+    runs-on: ubuntu-latest
     permissions:
       contents: write       # to be able to publish a GitHub release
       issues: write         # to be able to comment on released issues
