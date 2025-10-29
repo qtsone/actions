@@ -27,7 +27,7 @@ jobs:
             "branches": [
               "+([0-9])?(.{+([0-9]),x}).x",
               "main",
-              { "name": "*", "prerelease": true }
+              { "name": "refs/pull/*", "prerelease": true }
             ],
             "plugins": [
               "@semantic-release/commit-analyzer",
@@ -93,9 +93,7 @@ jobs:
               "+([0-9])?(.{+([0-9]),x}).x",
               "main",
               { "name": "feat/*", "prerelease": "feat" },
-              { "name": "fix/*", "prerelease": "fix" },
-              { "name": "test/*", "prerelease": "test" },
-              { "name": "*", "prerelease": true }
+              { "name": "fix/*", "prerelease": "fix" }
             ],
             "plugins": [
               "@semantic-release/commit-analyzer",
@@ -156,9 +154,7 @@ jobs:
               "+([0-9])?(.{+([0-9]),x}).x",
               "main",
               { "name": "feat/*", "prerelease": "feat" },
-              { "name": "fix/*", "prerelease": "fix" },
-              { "name": "test/*", "prerelease": "test" },
-              { "name": "*", "prerelease": true }
+              { "name": "fix/*", "prerelease": "fix" }
             ],
             "plugins": [
               "@semantic-release/commit-analyzer",
