@@ -125,6 +125,15 @@ runs:
 
         echo "=== Running semantic-release ==="
 
+        # Override environment variables for semantic-release if github-ref-override is provided
+        if [ -n "${{ inputs.github-ref-override }}" ]; then
+          export GITHUB_REF="${{ inputs.github-ref-override }}"
+          export GITHUB_EVENT_NAME="push"
+          echo "Overriding GitHub context:"
+          echo "  GITHUB_REF: ${GITHUB_REF}"
+          echo "  GITHUB_EVENT_NAME: ${GITHUB_EVENT_NAME}"
+        fi
+
         # Debug: Show relevant environment variables
         if [ "${{ inputs.debug }}" = "true" ]; then
           echo "Environment variables:"
@@ -226,8 +235,6 @@ runs:
         echo "✓ semantic-release completed successfully"
       env:
         GITHUB_TOKEN: ${{ inputs.github-token }}
-        GITHUB_REF: ${{ inputs.github-ref-override != '' && inputs.github-ref-override || github.ref }}
-        GITHUB_EVENT_NAME: ${{ inputs.github-ref-override != '' && 'push' || github.event_name }}
         GIT_AUTHOR_NAME: ${{ github.actor }}
         GIT_AUTHOR_EMAIL: ${{ github.actor }}@users.noreply.github.com
         GIT_COMMITTER_NAME: ${{ github.actor }}
