@@ -35,6 +35,12 @@ inputs:
     description: 'Add a suffix for generated Tag'
     required: false
     default: ''
+  extra-plugins:
+    description: 'Additional semantic-release plugins to install (one per line). Default includes changelog and git plugins.'
+    required: false
+    default: |
+      @semantic-release/changelog
+      @semantic-release/git
 
 outputs:
   new_release_published:
@@ -64,6 +70,7 @@ runs:
       with:
         ci: true
         semantic_version: ${{ inputs.semantic-version }}
+        extra_plugins: ${{ inputs.extra-plugins }}
         working_directory: .
         tag_format: ${{ inputs.tag-prefix }}${version}${{ inputs.tag-suffix }}
         dry_run: ${{ inputs.dry-run }}
