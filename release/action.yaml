@@ -17,7 +17,7 @@ inputs:
     required: false
   semantic-version:
     description: 'Semantic version for release.'
-    default: '21.1.1'
+    default: '24.2.0'
     required: false
   debug:
     description: 'Debug flag for semantic release (optional).'
@@ -91,7 +91,8 @@ runs:
 
         # Install semantic-release and plugins
         # Using --no-save to avoid modifying package.json unnecessarily
-        npm install --no-save \
+        # Using --legacy-peer-deps to handle potential peer dependency conflicts
+        npm install --no-save --legacy-peer-deps \
           semantic-release@${{ inputs.semantic-version }} \
           $PLUGINS_LIST
 
