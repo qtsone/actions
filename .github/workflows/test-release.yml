@@ -18,7 +18,7 @@ jobs:
       - name: Checkout PR
         uses: actions/checkout@v5
         with:
-          ref: ${{ github.event.pull_request.base.ref }}  # Check out actual PR branch, not merge commit
+          ref: ${{ github.ref }}  # Check out actual PR branch, not merge commit
           fetch-depth: 0  # Need full history for semantic-release
 
       - name: Create Test Release Config
@@ -77,9 +77,9 @@ jobs:
       pull-requests: write
     steps:
       - name: Checkout PR
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
-          ref: ${{ github.event.pull_request.base.ref }} # Check out actual PR branch, not merge commit
+          ref: ${{ github.ref }} # Check out actual PR branch, not merge commit
           fetch-depth: 0  # Need full history for semantic-release
 
       - name: Setup git branch
@@ -142,9 +142,9 @@ jobs:
         semantic-version: ['24.2.0', '23.0.0']
     steps:
       - name: Checkout PR
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
-          ref: ${{ github.event.pull_request.base.ref }}  # Check out actual PR branch, not merge commit
+          ref: ${{ github.ref }}  # Check out actual PR branch, not merge commit
           fetch-depth: 0  # Need full history for semantic-release
 
       - name: Setup git branch
