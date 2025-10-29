@@ -64,10 +64,6 @@ runs:
       with:
         ci: true
         semantic_version: ${{ inputs.semantic-version }}
-        extra_plugins: |
-          @semantic-release/changelog
-          @semantic-release/git
-          @semantic-release/exec
         working_directory: .
         tag_format: ${{ inputs.tag-prefix }}${version}${{ inputs.tag-suffix }}
         dry_run: ${{ inputs.dry-run }}
