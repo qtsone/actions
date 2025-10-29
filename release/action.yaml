@@ -125,6 +125,16 @@ runs:
 
         echo "=== Running semantic-release ==="
 
+        # Debug: Show relevant environment variables
+        if [ "${{ inputs.debug }}" = "true" ]; then
+          echo "Environment variables:"
+          echo "  GITHUB_REF: ${GITHUB_REF}"
+          echo "  GITHUB_HEAD_REF: ${GITHUB_HEAD_REF:-not set}"
+          echo "  GITHUB_BASE_REF: ${GITHUB_BASE_REF:-not set}"
+          echo "  GITHUB_EVENT_NAME: ${GITHUB_EVENT_NAME}"
+          echo "  git symbolic-ref HEAD: $(git symbolic-ref HEAD 2>/dev/null || echo 'none')"
+        fi
+
         # Set debug mode if enabled
         if [ "${{ inputs.debug }}" = "true" ]; then
           export DEBUG="semantic-release:*"
