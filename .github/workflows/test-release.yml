@@ -11,7 +11,9 @@ jobs:
     name: Test Basic Configuration
     runs-on: ubuntu-latest
     env:
-      GITHUB_REF: refs/heads/${{ github.head_ref }}  # Override for semantic-release in PR context
+      # Trick semantic-release to not detect GitHub Actions and use git branch instead
+      GITHUB_ACTIONS: ''  # Empty string disables GitHub Actions detection
+      GITHUB_REF: refs/heads/${{ github.head_ref }}  # This will work once GITHUB_ACTIONS is disabled
     permissions:
       contents: write
       issues: write
@@ -23,11 +25,10 @@ jobs:
           ref: ${{ github.head_ref }}  # Check out actual PR branch, not merge commit
           fetch-depth: 0  # Need full history for semantic-release
 
-      - name: Setup branch for semantic-release
+      - name: Setup git branch
         run: |
-          # Create local branch so semantic-release detects correct branch name
+          # Ensure we're on a proper branch for semantic-release
           git checkout -B ${{ github.head_ref }}
-          echo "Current branch: $(git branch --show-current)"
 
       - name: Create Test Release Config
         run: |
@@ -38,8 +39,7 @@ jobs:
               "main",
               { "name": "feat/*", "prerelease": "feat" },
               { "name": "fix/*", "prerelease": "fix" },
-              { "name": "test/*", "prerelease": "test" },
-              { "name": "refs/pull/*/merge", "prerelease": true }
+              { "name": "test/*", "prerelease": "test" }
             ],
             "plugins": [
               "@semantic-release/commit-analyzer",
@@ -87,7 +87,9 @@ jobs:
     name: Test Custom Plugins
     runs-on: ubuntu-latest
     env:
-      GITHUB_REF: refs/heads/${{ github.head_ref }}  # Override for semantic-release in PR context
+      # Trick semantic-release to not detect GitHub Actions and use git branch instead
+      GITHUB_ACTIONS: ''  # Empty string disables GitHub Actions detection
+      GITHUB_REF: refs/heads/${{ github.head_ref }}  # This will work once GITHUB_ACTIONS is disabled
     permissions:
       contents: write
       issues: write
@@ -99,11 +101,10 @@ jobs:
           ref: ${{ github.head_ref }}  # Check out actual PR branch, not merge commit
           fetch-depth: 0  # Need full history for semantic-release
 
-      - name: Setup branch for semantic-release
+      - name: Setup git branch
         run: |
-          # Create local branch so semantic-release detects correct branch name
+          # Ensure we're on a proper branch for semantic-release
           git checkout -B ${{ github.head_ref }}
-          echo "Current branch: $(git branch --show-current)"
 
       - name: Create Test .releaserc
         run: |
@@ -115,8 +116,7 @@ jobs:
               "main",
               { "name": "feat/*", "prerelease": "feat" },
               { "name": "fix/*", "prerelease": "fix" },
-              { "name": "test/*", "prerelease": "test" },
-              { "name": "refs/pull/*/merge", "prerelease": true }
+              { "name": "test/*", "prerelease": "test" }
             ],
             "plugins": [
               "@semantic-release/commit-analyzer",
@@ -156,7 +156,9 @@ jobs:
     name: Test Semantic Release Versions
     runs-on: ubuntu-latest
     env:
-      GITHUB_REF: refs/heads/${{ github.head_ref }}  # Override for semantic-release in PR context
+      # Trick semantic-release to not detect GitHub Actions and use git branch instead
+      GITHUB_ACTIONS: ''  # Empty string disables GitHub Actions detection
+      GITHUB_REF: refs/heads/${{ github.head_ref }}  # This will work once GITHUB_ACTIONS is disabled
     permissions:
       contents: write
       issues: write
@@ -171,11 +173,10 @@ jobs:
           ref: ${{ github.head_ref }}  # Check out actual PR branch, not merge commit
           fetch-depth: 0  # Need full history for semantic-release
 
-      - name: Setup branch for semantic-release
+      - name: Setup git branch
         run: |
-          # Create local branch so semantic-release detects correct branch name
+          # Ensure we're on a proper branch for semantic-release
           git checkout -B ${{ github.head_ref }}
-          echo "Current branch: $(git branch --show-current)"
 
       - name: Create Test Release Config
         run: |
@@ -187,8 +188,7 @@ jobs:
               "main",
               { "name": "feat/*", "prerelease": "feat" },
               { "name": "fix/*", "prerelease": "fix" },
-              { "name": "test/*", "prerelease": "test" },
-              { "name": "refs/pull/*/merge", "prerelease": true }
+              { "name": "test/*", "prerelease": "test" }
             ],
             "plugins": [
               "@semantic-release/commit-analyzer",
