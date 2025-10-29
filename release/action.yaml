@@ -58,22 +58,29 @@ runs:
       with:
         ssh-key: ${{ inputs.ssh-key }}
         token: ${{ inputs.github-token }}
+        fetch-depth: 0
 
     - name: Setup Node.js
       uses: actions/setup-node@v3
       with:
         node-version: ${{ inputs.node-version }}
 
-    - name: Semantic Release
+    - name: Install semantic-release and plugins
+      shell: bash
+      run: |
+        npm install --save-dev \
+          semantic-release@${{ inputs.semantic-version }} \
+          ${{ inputs.extra-plugins }}
+
+    - name: Run semantic-release
       id: semantic
-      uses: cycjimmy/semantic-release-action@v4
-      with:
-        ci: true
-        semantic_version: ${{ inputs.semantic-version }}
-        extra_plugins: ${{ inputs.extra-plugins }}
-        working_directory: .
-        tag_format: ${{ inputs.tag-prefix }}${version}${{ inputs.tag-suffix }}
-        dry_run: ${{ inputs.dry-run }}
+      shell: bash
+      run: |
+        if [ "${{ inputs.dry-run }}" = "true" ]; then
+          npx semantic-release --dry-run
+        else
+          npx semantic-release
+        fi
       env:
         GITHUB_TOKEN: ${{ inputs.github-token }}
         DEBUG: ${{ inputs.debug }}
