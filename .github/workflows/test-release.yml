@@ -49,9 +49,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           dry-run: 'true'
           debug: 'true'
-        env:
-          # Override PR detection so semantic-release actually runs analysis
-          GITHUB_EVENT_NAME: 'push'
+          no-ci: 'true'  # Skip CI detection to allow version analysis in PR context
 
       - name: Validate Outputs
         run: |
@@ -116,12 +114,10 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           dry-run: 'true'
           debug: 'true'
+          no-ci: 'true'  # Skip CI detection to allow version analysis in PR context
           extra-plugins: |
             @semantic-release/changelog
             @semantic-release/git
-        env:
-          # Override PR detection so semantic-release actually runs analysis
-          GITHUB_EVENT_NAME: 'push'
 
       - name: Validate Custom Plugins
         run: |
@@ -177,10 +173,8 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           dry-run: 'true'
+          no-ci: 'true'  # Skip CI detection to allow version analysis in PR context
           semantic-version: ${{ matrix.semantic-version }}
-        env:
-          # Override PR detection so semantic-release actually runs analysis
-          GITHUB_EVENT_NAME: 'push'
 
       - name: Validate Version Compatibility
         run: |
