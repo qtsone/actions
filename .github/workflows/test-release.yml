@@ -21,6 +21,22 @@ jobs:
           ref: ${{ github.ref }}  # Check out actual PR branch, not merge commit
           fetch-depth: 0  # Need full history for semantic-release
 
+      - name: Debug Environment Variables
+        run: |
+          echo "=== GitHub Actions Context ==="
+          echo "github.ref: ${{ github.ref }}"
+          echo "github.head_ref: ${{ github.head_ref }}"
+          echo "github.base_ref: ${{ github.base_ref }}"
+          echo ""
+          echo "=== Environment Variables ==="
+          echo "GITHUB_REF: $GITHUB_REF"
+          echo "GITHUB_HEAD_REF: $GITHUB_HEAD_REF"
+          echo "GITHUB_BASE_REF: $GITHUB_BASE_REF"
+          echo ""
+          echo "=== Git State ==="
+          git rev-parse --abbrev-ref HEAD || echo "detached HEAD"
+          git log --oneline -1
+
       - name: Create Test Release Config
         run: |
           cat > .releaserc << EOF
