@@ -37,7 +37,7 @@ jobs:
               { "name": "feat/*", "prerelease": "feat" },
               { "name": "fix/*", "prerelease": "fix" },
               { "name": "test/*", "prerelease": "test" },
-              { "name": "*", "prerelease": true }
+              { "name": "refs/pull/*/merge", "prerelease": true }
             ],
             "plugins": [
               "@semantic-release/commit-analyzer",
@@ -112,7 +112,7 @@ jobs:
               { "name": "feat/*", "prerelease": "feat" },
               { "name": "fix/*", "prerelease": "fix" },
               { "name": "test/*", "prerelease": "test" },
-              { "name": "*", "prerelease": true }
+              { "name": "refs/pull/*/merge", "prerelease": true }
             ],
             "plugins": [
               "@semantic-release/commit-analyzer",
@@ -182,7 +182,7 @@ jobs:
               { "name": "feat/*", "prerelease": "feat" },
               { "name": "fix/*", "prerelease": "fix" },
               { "name": "test/*", "prerelease": "test" },
-              { "name": "*", "prerelease": true }
+              { "name": "refs/pull/*/merge", "prerelease": true }
             ],
             "plugins": [
               "@semantic-release/commit-analyzer",
