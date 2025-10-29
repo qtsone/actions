@@ -153,6 +153,7 @@ runs:
 
         # Run semantic-release with output capture
         set +e  # Don't exit on error, we need to process output
+        $SR_CMD 2>&1 | tee "$OUTPUT_FILE"
         SR_EXIT_CODE=${PIPESTATUS[0]}
         set -e
 
