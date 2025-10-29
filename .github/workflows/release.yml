@@ -17,6 +17,9 @@ jobs:
       issues: write         # to be able to comment on released issues
       pull-requests: write  # to be able to comment on released pull requests
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Semantic Release
         id: release
         uses: ./release  # Use the local release action
