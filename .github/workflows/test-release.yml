@@ -20,6 +20,28 @@ jobs:
         with:
           ref: ${{ github.head_ref }}
 
+      - name: Create Test Release Config
+        run: |
+          # Create a test .releaserc that accepts all branches for testing
+          cat > .releaserc.test << 'EOF'
+          {
+            "branches": [
+              "+([0-9])?(.{+([0-9]),x}).x",
+              "main",
+              { "name": "feat/*", "prerelease": true },
+              { "name": "fix/*", "prerelease": true }
+            ],
+            "plugins": [
+              "@semantic-release/commit-analyzer",
+              "@semantic-release/release-notes-generator",
+              "@semantic-release/changelog",
+              "@semantic-release/git",
+              "@semantic-release/github"
+            ]
+          }
+          EOF
+          mv .releaserc.test .releaserc
+
       - name: Test Release Action (Dry Run)
         id: release
         uses: ./release
@@ -27,6 +49,9 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           dry-run: 'true'
           debug: 'true'
+        env:
+          # Override PR detection so semantic-release actually runs analysis
+          GITHUB_EVENT_NAME: 'push'
 
       - name: Validate Outputs
         run: |
@@ -65,9 +90,15 @@ jobs:
 
       - name: Create Test .releaserc
         run: |
+          # Create a test .releaserc that accepts all branches for testing
           cat > .releaserc << 'EOF'
           {
-            "branches": ["main"],
+            "branches": [
+              "+([0-9])?(.{+([0-9]),x}).x",
+              "main",
+              { "name": "feat/*", "prerelease": true },
+              { "name": "fix/*", "prerelease": true }
+            ],
             "plugins": [
               "@semantic-release/commit-analyzer",
               "@semantic-release/release-notes-generator",
@@ -88,6 +119,9 @@ jobs:
           extra-plugins: |
             @semantic-release/changelog
             @semantic-release/git
+        env:
+          # Override PR detection so semantic-release actually runs analysis
+          GITHUB_EVENT_NAME: 'push'
 
       - name: Validate Custom Plugins
         run: |
@@ -116,6 +150,27 @@ jobs:
         with:
           ref: ${{ github.head_ref }}
 
+      - name: Create Test Release Config
+        run: |
+          # Create a test .releaserc that accepts all branches for testing
+          cat > .releaserc << 'EOF'
+          {
+            "branches": [
+              "+([0-9])?(.{+([0-9]),x}).x",
+              "main",
+              { "name": "feat/*", "prerelease": true },
+              { "name": "fix/*", "prerelease": true }
+            ],
+            "plugins": [
+              "@semantic-release/commit-analyzer",
+              "@semantic-release/release-notes-generator",
+              "@semantic-release/changelog",
+              "@semantic-release/git",
+              "@semantic-release/github"
+            ]
+          }
+          EOF
+
       - name: Test Release Action (v${{ matrix.semantic-version }})
         id: release
         uses: ./release
@@ -123,6 +178,9 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           dry-run: 'true'
           semantic-version: ${{ matrix.semantic-version }}
+        env:
+          # Override PR detection so semantic-release actually runs analysis
+          GITHUB_EVENT_NAME: 'push'
 
       - name: Validate Version Compatibility
         run: |
