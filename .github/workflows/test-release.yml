@@ -26,6 +26,8 @@ jobs:
           # Ensure git knows we're on the PR branch, not refs/pull/X/merge
           git checkout -B ${{ github.head_ref }}
           echo "Current branch: $(git branch --show-current)"
+          echo "HEAD ref: $(git symbolic-ref HEAD || echo 'detached')"
+          echo "HEAD commit: $(git rev-parse HEAD)"
 
       - name: Create Test Release Config
         run: |
