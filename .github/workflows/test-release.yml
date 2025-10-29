@@ -58,6 +58,7 @@ jobs:
           debug: 'true'
           no-ci: 'true'  # Skip CI detection to allow version analysis in PR context
           skip-checkout: 'true'  # Skip checkout since we already set up branch and test config
+          github-ref-override: refs/heads/${{ github.head_ref }}  # Override GITHUB_REF for correct branch detection
 
       - name: Validate Outputs
         run: |
@@ -131,6 +132,7 @@ jobs:
           debug: 'true'
           no-ci: 'true'  # Skip CI detection to allow version analysis in PR context
           skip-checkout: 'true'  # Skip checkout since we already set up branch and test config
+          github-ref-override: refs/heads/${{ github.head_ref }}  # Override GITHUB_REF for correct branch detection
           extra-plugins: |
             @semantic-release/changelog
             @semantic-release/git
@@ -198,6 +200,7 @@ jobs:
           dry-run: 'true'
           no-ci: 'true'  # Skip CI detection to allow version analysis in PR context
           skip-checkout: 'true'  # Skip checkout since we already set up branch and test config
+          github-ref-override: refs/heads/${{ github.head_ref }}  # Override GITHUB_REF for correct branch detection
           semantic-version: ${{ matrix.semantic-version }}
 
       - name: Validate Version Compatibility

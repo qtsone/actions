@@ -49,6 +49,10 @@ inputs:
     description: 'Skip the checkout step (useful when checkout is already done in workflow)'
     required: false
     default: 'false'
+  github-ref-override:
+    description: 'Override GITHUB_REF for branch detection (useful for PR testing)'
+    required: false
+    default: ''
 
 outputs:
   new_release_published:
@@ -205,6 +209,7 @@ runs:
         echo "✓ semantic-release completed successfully"
       env:
         GITHUB_TOKEN: ${{ inputs.github-token }}
+        GITHUB_REF: ${{ inputs.github-ref-override != '' && inputs.github-ref-override || github.ref }}
         GIT_AUTHOR_NAME: ${{ github.actor }}
         GIT_AUTHOR_EMAIL: ${{ github.actor }}@users.noreply.github.com
         GIT_COMMITTER_NAME: ${{ github.actor }}
