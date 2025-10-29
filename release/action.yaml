@@ -141,6 +141,13 @@ runs:
           SR_CMD="$SR_CMD --no-ci"
           echo "CI detection disabled (--no-ci flag enabled)"
         fi
+        if [ -n "${{ inputs.github-ref-override }}" ]; then
+          # Extract branch name from refs/heads/branch-name
+          BRANCH_NAME="${{ inputs.github-ref-override }}"
+          BRANCH_NAME="${BRANCH_NAME#refs/heads/}"
+          SR_CMD="$SR_CMD --branches $BRANCH_NAME"
+          echo "Branch override: $BRANCH_NAME"
+        fi
 
         # Run semantic-release and capture output
         OUTPUT_FILE=$(mktemp)
