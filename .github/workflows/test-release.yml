@@ -24,9 +24,12 @@ jobs:
       - name: Set Branch Name
         run: |
           # Ensure git knows we're on the PR branch, not refs/pull/X/merge
+          # Force update the symbolic ref to point to our branch
           git checkout -B ${{ github.head_ref }}
+          git symbolic-ref HEAD refs/heads/${{ github.head_ref }}
+          git reset --hard HEAD
           echo "Current branch: $(git branch --show-current)"
-          echo "HEAD ref: $(git symbolic-ref HEAD || echo 'detached')"
+          echo "HEAD ref: $(git symbolic-ref HEAD)"
           echo "HEAD commit: $(git rev-parse HEAD)"
 
       - name: Create Test Release Config
