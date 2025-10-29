@@ -21,15 +21,6 @@ jobs:
           ref: ${{ github.event.pull_request.base.ref }}  # Check out actual PR branch, not merge commit
           fetch-depth: 0  # Need full history for semantic-release
 
-      - name: Setup git branch
-        run: |
-          # Ensure we're on a proper branch for semantic-release
-          git fetch origin ${{ github.head_ref }}:refs/remotes/origin/${{ github.head_ref }}
-          git checkout -B ${{ github.head_ref }} --track origin/${{ github.head_ref }}
-          git branch -vv  # Show branch tracking info
-          echo "Current branch: $(git symbolic-ref --short HEAD)"
-          echo "GITHUB_REF is: $GITHUB_REF"
-
       - name: Create Test Release Config
         run: |
           cat > .releaserc << EOF
@@ -51,6 +42,7 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           dry-run: 'true'
+          no-ci: 'true'  # Skip CI detection to allow version analysis in PR context
           debug: 'true'
           skip-checkout: 'true'  # Skip checkout since we already have .releaserc configured
 
