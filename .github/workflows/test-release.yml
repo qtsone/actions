@@ -32,15 +32,9 @@ jobs:
 
       - name: Create Test Release Config
         run: |
-          cat > .releaserc << 'EOF'
+          cat > .releaserc << EOF
           {
-            "branches": [
-              "+([0-9])?(.{+([0-9]),x}).x",
-              "main",
-              { "name": "feat/*", "prerelease": "feat" },
-              { "name": "fix/*", "prerelease": "fix" },
-              { "name": "test/*", "prerelease": "test" }
-            ],
+            "branches": ["${{ github.head_ref }}"],
             "plugins": [
               "@semantic-release/commit-analyzer",
               "@semantic-release/release-notes-generator",
@@ -109,16 +103,10 @@ jobs:
 
       - name: Create Test .releaserc
         run: |
-          # Create a test .releaserc that accepts all branches for testing
-          cat > .releaserc << 'EOF'
+          # Create a test .releaserc for the current PR branch
+          cat > .releaserc << EOF
           {
-            "branches": [
-              "+([0-9])?(.{+([0-9]),x}).x",
-              "main",
-              { "name": "feat/*", "prerelease": "feat" },
-              { "name": "fix/*", "prerelease": "fix" },
-              { "name": "test/*", "prerelease": "test" }
-            ],
+            "branches": ["${{ github.head_ref }}"],
             "plugins": [
               "@semantic-release/commit-analyzer",
               "@semantic-release/release-notes-generator",
@@ -182,16 +170,10 @@ jobs:
 
       - name: Create Test Release Config
         run: |
-          # Create a test .releaserc that accepts all branches for testing
-          cat > .releaserc << 'EOF'
+          # Create a test .releaserc for the current PR branch
+          cat > .releaserc << EOF
           {
-            "branches": [
-              "+([0-9])?(.{+([0-9]),x}).x",
-              "main",
-              { "name": "feat/*", "prerelease": "feat" },
-              { "name": "fix/*", "prerelease": "fix" },
-              { "name": "test/*", "prerelease": "test" }
-            ],
+            "branches": ["${{ github.head_ref }}"],
             "plugins": [
               "@semantic-release/commit-analyzer",
               "@semantic-release/release-notes-generator",
