@@ -10,10 +10,6 @@ jobs:
   test-basic:
     name: Test Basic Configuration
     runs-on: ubuntu-latest
-    env:
-      # Trick semantic-release to not detect GitHub Actions and use git branch instead
-      GITHUB_ACTIONS: ''  # Empty string disables GitHub Actions detection
-      GITHUB_REF: refs/heads/${{ github.head_ref }}  # This will work once GITHUB_ACTIONS is disabled
     permissions:
       contents: write
       issues: write
@@ -28,7 +24,11 @@ jobs:
       - name: Setup git branch
         run: |
           # Ensure we're on a proper branch for semantic-release
-          git checkout -B ${{ github.head_ref }}
+          git fetch origin ${{ github.head_ref }}:refs/remotes/origin/${{ github.head_ref }}
+          git checkout -B ${{ github.head_ref }} --track origin/${{ github.head_ref }}
+          git branch -vv  # Show branch tracking info
+          echo "Current branch: $(git symbolic-ref --short HEAD)"
+          echo "GITHUB_REF is: $GITHUB_REF"
 
       - name: Create Test Release Config
         run: |
@@ -60,6 +60,7 @@ jobs:
           debug: 'true'
           no-ci: 'true'  # Skip CI detection to allow version analysis in PR context
           skip-checkout: 'true'  # Skip checkout since we already have .releaserc configured
+          branch-override: ${{ github.head_ref }}  # Override branch for PR testing
 
       - name: Validate Outputs
         run: |
@@ -86,10 +87,6 @@ jobs:
   test-custom-plugins:
     name: Test Custom Plugins
     runs-on: ubuntu-latest
-    env:
-      # Trick semantic-release to not detect GitHub Actions and use git branch instead
-      GITHUB_ACTIONS: ''  # Empty string disables GitHub Actions detection
-      GITHUB_REF: refs/heads/${{ github.head_ref }}  # This will work once GITHUB_ACTIONS is disabled
     permissions:
       contents: write
       issues: write
@@ -104,7 +101,11 @@ jobs:
       - name: Setup git branch
         run: |
           # Ensure we're on a proper branch for semantic-release
-          git checkout -B ${{ github.head_ref }}
+          git fetch origin ${{ github.head_ref }}:refs/remotes/origin/${{ github.head_ref }}
+          git checkout -B ${{ github.head_ref }} --track origin/${{ github.head_ref }}
+          git branch -vv  # Show branch tracking info
+          echo "Current branch: $(git symbolic-ref --short HEAD)"
+          echo "GITHUB_REF is: $GITHUB_REF"
 
       - name: Create Test .releaserc
         run: |
@@ -137,6 +138,7 @@ jobs:
           debug: 'true'
           no-ci: 'true'  # Skip CI detection to allow version analysis in PR context
           skip-checkout: 'true'  # Skip checkout since we already have .releaserc configured
+          branch-override: ${{ github.head_ref }}  # Override branch for PR testing
           extra-plugins: |
             @semantic-release/changelog
             @semantic-release/git
@@ -155,10 +157,6 @@ jobs:
   test-different-versions:
     name: Test Semantic Release Versions
     runs-on: ubuntu-latest
-    env:
-      # Trick semantic-release to not detect GitHub Actions and use git branch instead
-      GITHUB_ACTIONS: ''  # Empty string disables GitHub Actions detection
-      GITHUB_REF: refs/heads/${{ github.head_ref }}  # This will work once GITHUB_ACTIONS is disabled
     permissions:
       contents: write
       issues: write
@@ -176,7 +174,11 @@ jobs:
       - name: Setup git branch
         run: |
           # Ensure we're on a proper branch for semantic-release
-          git checkout -B ${{ github.head_ref }}
+          git fetch origin ${{ github.head_ref }}:refs/remotes/origin/${{ github.head_ref }}
+          git checkout -B ${{ github.head_ref }} --track origin/${{ github.head_ref }}
+          git branch -vv  # Show branch tracking info
+          echo "Current branch: $(git symbolic-ref --short HEAD)"
+          echo "GITHUB_REF is: $GITHUB_REF"
 
       - name: Create Test Release Config
         run: |
@@ -208,6 +210,7 @@ jobs:
           dry-run: 'true'
           no-ci: 'true'  # Skip CI detection to allow version analysis in PR context
           skip-checkout: 'true'  # Skip checkout since we already have .releaserc configured
+          branch-override: ${{ github.head_ref }}  # Override branch for PR testing
           semantic-version: ${{ matrix.semantic-version }}
 
       - name: Validate Version Compatibility

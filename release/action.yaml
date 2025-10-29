@@ -49,6 +49,10 @@ inputs:
     description: 'Skip the checkout step (useful when checkout is already done in workflow)'
     required: false
     default: 'false'
+  branch-override:
+    description: 'Override branch name for semantic-release (useful for PR testing)'
+    required: false
+    default: ''
 
 outputs:
   new_release_published:
@@ -137,6 +141,10 @@ runs:
           SR_CMD="$SR_CMD --no-ci"
           echo "CI detection disabled (--no-ci flag enabled)"
         fi
+        if [ -n "${{ inputs.branch-override }}" ]; then
+          SR_CMD="$SR_CMD --branches ${{ inputs.branch-override }}"
+          echo "Branch override: ${{ inputs.branch-override }}"
+        fi
 
         # Run semantic-release and capture output
         OUTPUT_FILE=$(mktemp)
@@ -145,7 +153,12 @@ runs:
 
         # Run semantic-release with output capture
         set +e  # Don't exit on error, we need to process output
-        $SR_CMD 2>&1 | tee "$OUTPUT_FILE"
+        if [ -n "${{ inputs.branch-override }}" ]; then
+          # When branch override is used, unset GITHUB_ACTIONS to prevent CI detection
+          (unset GITHUB_ACTIONS && eval $SR_CMD) 2>&1 | tee "$OUTPUT_FILE"
+        else
+          $SR_CMD 2>&1 | tee "$OUTPUT_FILE"
+        fi
         SR_EXIT_CODE=${PIPESTATUS[0]}
         set -e
 
