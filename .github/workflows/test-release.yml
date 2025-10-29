@@ -52,6 +52,8 @@ jobs:
       - name: Test Release Action (Dry Run)
         id: release
         uses: ./release
+        env:
+          GITHUB_REF: refs/heads/${{ github.head_ref }}  # Override to actual branch name for semantic-release
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           dry-run: 'true'
@@ -127,6 +129,8 @@ jobs:
       - name: Test Release Action with Custom Plugins (Dry Run)
         id: release
         uses: ./release
+        env:
+          GITHUB_REF: refs/heads/${{ github.head_ref }}  # Override to actual branch name for semantic-release
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           dry-run: 'true'
@@ -197,6 +201,8 @@ jobs:
       - name: Test Release Action (v${{ matrix.semantic-version }})
         id: release
         uses: ./release
+        env:
+          GITHUB_REF: refs/heads/${{ github.head_ref }}  # Override to actual branch name for semantic-release
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           dry-run: 'true'
