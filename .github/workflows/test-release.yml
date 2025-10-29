@@ -18,19 +18,7 @@ jobs:
       - name: Checkout PR
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref }}
           fetch-depth: 0  # Need full history for semantic-release
-
-      - name: Set Branch Name
-        run: |
-          # Ensure git knows we're on the PR branch, not refs/pull/X/merge
-          # Force update the symbolic ref to point to our branch
-          git checkout -B ${{ github.head_ref }}
-          git symbolic-ref HEAD refs/heads/${{ github.head_ref }}
-          git reset --hard HEAD
-          echo "Current branch: $(git branch --show-current)"
-          echo "HEAD ref: $(git symbolic-ref HEAD)"
-          echo "HEAD commit: $(git rev-parse HEAD)"
 
       - name: Create Test Release Config
         run: |
@@ -62,8 +50,7 @@ jobs:
           dry-run: 'true'
           debug: 'true'
           no-ci: 'true'  # Skip CI detection to allow version analysis in PR context
-          skip-checkout: 'true'  # Skip checkout since we already set up branch and test config
-          github-ref-override: refs/heads/${{ github.head_ref }}  # Override GITHUB_REF for correct branch detection
+          skip-checkout: 'true'  # Skip checkout since we already have .releaserc configured
 
       - name: Validate Outputs
         run: |
@@ -98,14 +85,7 @@ jobs:
       - name: Checkout PR
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref }}
           fetch-depth: 0  # Need full history for semantic-release
-
-      - name: Set Branch Name
-        run: |
-          # Ensure git knows we're on the PR branch, not refs/pull/X/merge
-          git checkout -B ${{ github.head_ref }}
-          echo "Current branch: $(git branch --show-current)"
 
       - name: Create Test .releaserc
         run: |
@@ -136,8 +116,7 @@ jobs:
           dry-run: 'true'
           debug: 'true'
           no-ci: 'true'  # Skip CI detection to allow version analysis in PR context
-          skip-checkout: 'true'  # Skip checkout since we already set up branch and test config
-          github-ref-override: refs/heads/${{ github.head_ref }}  # Override GITHUB_REF for correct branch detection
+          skip-checkout: 'true'  # Skip checkout since we already have .releaserc configured
           extra-plugins: |
             @semantic-release/changelog
             @semantic-release/git
@@ -167,14 +146,7 @@ jobs:
       - name: Checkout PR
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref }}
           fetch-depth: 0  # Need full history for semantic-release
-
-      - name: Set Branch Name
-        run: |
-          # Ensure git knows we're on the PR branch, not refs/pull/X/merge
-          git checkout -B ${{ github.head_ref }}
-          echo "Current branch: $(git branch --show-current)"
 
       - name: Create Test Release Config
         run: |
@@ -204,8 +176,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           dry-run: 'true'
           no-ci: 'true'  # Skip CI detection to allow version analysis in PR context
-          skip-checkout: 'true'  # Skip checkout since we already set up branch and test config
-          github-ref-override: refs/heads/${{ github.head_ref }}  # Override GITHUB_REF for correct branch detection
+          skip-checkout: 'true'  # Skip checkout since we already have .releaserc configured
           semantic-version: ${{ matrix.semantic-version }}
 
       - name: Validate Version Compatibility
