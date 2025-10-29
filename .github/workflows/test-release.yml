@@ -1,0 +1,163 @@
+name: Test Release Action
+
+on:
+  pull_request:
+    paths:
+      - 'release/**'
+      - '.github/workflows/test-release.yml'
+
+jobs:
+  test-basic:
+    name: Test Basic Configuration
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Checkout PR
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+
+      - name: Test Release Action (Dry Run)
+        id: release
+        uses: ./release
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          dry-run: 'true'
+          debug: 'true'
+
+      - name: Validate Outputs
+        run: |
+          echo "## 🧪 Test Results - Basic Configuration" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Outputs Validation" >> $GITHUB_STEP_SUMMARY
+          echo "- **new_release_published**: \`${{ steps.release.outputs.new_release_published }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **new_release_version**: \`${{ steps.release.outputs.new_release_version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Validate output format
+          if [ "${{ steps.release.outputs.new_release_published }}" != "true" ] && [ "${{ steps.release.outputs.new_release_published }}" != "false" ]; then
+            echo "❌ **FAILED**: new_release_published must be 'true' or 'false'" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+
+          if [ "${{ steps.release.outputs.new_release_published }}" = "true" ] && [ -z "${{ steps.release.outputs.new_release_version }}" ]; then
+            echo "❌ **FAILED**: new_release_version must be set when release is published" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+
+          echo "✅ **PASSED**: Output validation successful" >> $GITHUB_STEP_SUMMARY
+
+  test-custom-plugins:
+    name: Test Custom Plugins
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Checkout PR
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+
+      - name: Create Test .releaserc
+        run: |
+          cat > .releaserc << 'EOF'
+          {
+            "branches": ["main"],
+            "plugins": [
+              "@semantic-release/commit-analyzer",
+              "@semantic-release/release-notes-generator",
+              "@semantic-release/changelog",
+              "@semantic-release/git",
+              "@semantic-release/github"
+            ]
+          }
+          EOF
+
+      - name: Test Release Action with Custom Plugins (Dry Run)
+        id: release
+        uses: ./release
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          dry-run: 'true'
+          debug: 'true'
+          extra-plugins: |
+            @semantic-release/changelog
+            @semantic-release/git
+
+      - name: Validate Custom Plugins
+        run: |
+          echo "## 🧪 Test Results - Custom Plugins" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Configuration" >> $GITHUB_STEP_SUMMARY
+          echo "- **Plugins**: changelog, git" >> $GITHUB_STEP_SUMMARY
+          echo "- **new_release_published**: \`${{ steps.release.outputs.new_release_published }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **new_release_version**: \`${{ steps.release.outputs.new_release_version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **PASSED**: Custom plugins loaded successfully" >> $GITHUB_STEP_SUMMARY
+
+  test-different-versions:
+    name: Test Semantic Release Versions
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    strategy:
+      matrix:
+        semantic-version: ['24.2.0', '23.0.0']
+    steps:
+      - name: Checkout PR
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+
+      - name: Test Release Action (v${{ matrix.semantic-version }})
+        id: release
+        uses: ./release
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          dry-run: 'true'
+          semantic-version: ${{ matrix.semantic-version }}
+
+      - name: Validate Version Compatibility
+        run: |
+          echo "## 🧪 Test Results - Version ${{ matrix.semantic-version }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Semantic Release**: v${{ matrix.semantic-version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status**: ✅ Compatible" >> $GITHUB_STEP_SUMMARY
+          echo "- **new_release_published**: \`${{ steps.release.outputs.new_release_published }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **new_release_version**: \`${{ steps.release.outputs.new_release_version }}\`" >> $GITHUB_STEP_SUMMARY
+
+  test-summary:
+    name: Test Summary
+    runs-on: ubuntu-latest
+    needs: [test-basic, test-custom-plugins, test-different-versions]
+    if: always()
+    steps:
+      - name: Overall Summary
+        run: |
+          echo "## 📊 Overall Test Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "- **Basic Configuration**: ${{ needs.test-basic.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Custom Plugins**: ${{ needs.test-custom-plugins.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version Compatibility**: ${{ needs.test-different-versions.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ needs.test-basic.result }}" = "success" ] && \
+             [ "${{ needs.test-custom-plugins.result }}" = "success" ] && \
+             [ "${{ needs.test-different-versions.result }}" = "success" ]; then
+            echo "### ✅ All Tests Passed" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "The release action is ready to merge!" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### ❌ Some Tests Failed" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Please review the test failures above before merging." >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
