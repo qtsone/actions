@@ -21,6 +21,12 @@ jobs:
           ref: ${{ github.head_ref }}  # Check out actual PR branch, not merge commit
           fetch-depth: 0  # Need full history for semantic-release
 
+      - name: Setup branch for semantic-release
+        run: |
+          # Create local branch so semantic-release detects correct branch name
+          git checkout -B ${{ github.head_ref }}
+          echo "Current branch: $(git branch --show-current)"
+
       - name: Create Test Release Config
         run: |
           cat > .releaserc << 'EOF'
@@ -89,6 +95,12 @@ jobs:
           ref: ${{ github.head_ref }}  # Check out actual PR branch, not merge commit
           fetch-depth: 0  # Need full history for semantic-release
 
+      - name: Setup branch for semantic-release
+        run: |
+          # Create local branch so semantic-release detects correct branch name
+          git checkout -B ${{ github.head_ref }}
+          echo "Current branch: $(git branch --show-current)"
+
       - name: Create Test .releaserc
         run: |
           # Create a test .releaserc that accepts all branches for testing
@@ -152,6 +164,12 @@ jobs:
         with:
           ref: ${{ github.head_ref }}  # Check out actual PR branch, not merge commit
           fetch-depth: 0  # Need full history for semantic-release
+
+      - name: Setup branch for semantic-release
+        run: |
+          # Create local branch so semantic-release detects correct branch name
+          git checkout -B ${{ github.head_ref }}
+          echo "Current branch: $(git branch --show-current)"
 
       - name: Create Test Release Config
         run: |
