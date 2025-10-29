@@ -57,6 +57,7 @@ jobs:
           dry-run: 'true'
           debug: 'true'
           no-ci: 'true'  # Skip CI detection to allow version analysis in PR context
+          skip-checkout: 'true'  # Skip checkout since we already set up branch and test config
 
       - name: Validate Outputs
         run: |
@@ -129,6 +130,7 @@ jobs:
           dry-run: 'true'
           debug: 'true'
           no-ci: 'true'  # Skip CI detection to allow version analysis in PR context
+          skip-checkout: 'true'  # Skip checkout since we already set up branch and test config
           extra-plugins: |
             @semantic-release/changelog
             @semantic-release/git
@@ -195,6 +197,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           dry-run: 'true'
           no-ci: 'true'  # Skip CI detection to allow version analysis in PR context
+          skip-checkout: 'true'  # Skip checkout since we already set up branch and test config
           semantic-version: ${{ matrix.semantic-version }}
 
       - name: Validate Version Compatibility
