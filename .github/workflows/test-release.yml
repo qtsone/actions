@@ -16,14 +16,13 @@ jobs:
       pull-requests: write
     steps:
       - name: Checkout PR
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0  # Need full history for semantic-release
 
       - name: Create Test Release Config
         run: |
-          # Create a test .releaserc that accepts all branches for testing
-          cat > .releaserc.test << 'EOF'
+          cat > .releaserc << 'EOF'
           {
             "branches": [
               "+([0-9])?(.{+([0-9]),x}).x",
@@ -40,7 +39,6 @@ jobs:
             ]
           }
           EOF
-          mv .releaserc.test .releaserc
 
       - name: Test Release Action (Dry Run)
         id: release
