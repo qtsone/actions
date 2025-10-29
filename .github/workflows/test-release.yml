@@ -52,7 +52,6 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           dry-run: 'true'
           debug: 'true'
-          no-ci: 'true'  # Skip CI detection to allow version analysis in PR context
           skip-checkout: 'true'  # Skip checkout since we already have .releaserc configured
 
       - name: Validate Outputs
@@ -123,7 +122,6 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           dry-run: 'true'
           debug: 'true'
-          no-ci: 'true'  # Skip CI detection to allow version analysis in PR context
           skip-checkout: 'true'  # Skip checkout since we already have .releaserc configured
           extra-plugins: |
             @semantic-release/changelog
@@ -188,7 +186,6 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           dry-run: 'true'
-          no-ci: 'true'  # Skip CI detection to allow version analysis in PR context
           skip-checkout: 'true'  # Skip checkout since we already have .releaserc configured
           semantic-version: ${{ matrix.semantic-version }}
 

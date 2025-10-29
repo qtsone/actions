@@ -41,10 +41,6 @@ inputs:
     default: |
       @semantic-release/changelog
       @semantic-release/git
-  no-ci:
-    description: 'Skip CI detection (useful for testing in PR context)'
-    required: false
-    default: 'false'
   skip-checkout:
     description: 'Skip the checkout step (useful when checkout is already done in workflow)'
     required: false
@@ -132,10 +128,6 @@ runs:
         if [ "${{ inputs.dry-run }}" = "true" ]; then
           SR_CMD="$SR_CMD --dry-run"
           echo "Running in DRY-RUN mode (no actual release will be created)"
-        fi
-        if [ "${{ inputs.no-ci }}" = "true" ]; then
-          SR_CMD="$SR_CMD --no-ci"
-          echo "CI detection disabled (--no-ci flag enabled)"
         fi
 
         # Run semantic-release and capture output
