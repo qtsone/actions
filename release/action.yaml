@@ -153,12 +153,6 @@ runs:
 
         # Run semantic-release with output capture
         set +e  # Don't exit on error, we need to process output
-        if [ -n "${{ inputs.branch-override }}" ]; then
-          # When branch override is used, unset GITHUB_ACTIONS to prevent CI detection
-          (unset GITHUB_ACTIONS && eval $SR_CMD) 2>&1 | tee "$OUTPUT_FILE"
-        else
-          $SR_CMD 2>&1 | tee "$OUTPUT_FILE"
-        fi
         SR_EXIT_CODE=${PIPESTATUS[0]}
         set -e
 
