@@ -49,10 +49,6 @@ inputs:
     description: 'Skip the checkout step (useful when checkout is already done in workflow)'
     required: false
     default: 'false'
-  branch-override:
-    description: 'Override branch name for semantic-release (useful for PR testing)'
-    required: false
-    default: ''
 
 outputs:
   new_release_published:
@@ -140,10 +136,6 @@ runs:
         if [ "${{ inputs.no-ci }}" = "true" ]; then
           SR_CMD="$SR_CMD --no-ci"
           echo "CI detection disabled (--no-ci flag enabled)"
-        fi
-        if [ -n "${{ inputs.branch-override }}" ]; then
-          SR_CMD="$SR_CMD --branches ${{ inputs.branch-override }}"
-          echo "Branch override: ${{ inputs.branch-override }}"
         fi
 
         # Run semantic-release and capture output

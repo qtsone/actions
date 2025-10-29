@@ -54,7 +54,6 @@ jobs:
           debug: 'true'
           no-ci: 'true'  # Skip CI detection to allow version analysis in PR context
           skip-checkout: 'true'  # Skip checkout since we already have .releaserc configured
-          branch-override: ${{ github.head_ref }}  # Override branch for PR testing
 
       - name: Validate Outputs
         run: |
@@ -126,7 +125,6 @@ jobs:
           debug: 'true'
           no-ci: 'true'  # Skip CI detection to allow version analysis in PR context
           skip-checkout: 'true'  # Skip checkout since we already have .releaserc configured
-          branch-override: ${{ github.head_ref }}  # Override branch for PR testing
           extra-plugins: |
             @semantic-release/changelog
             @semantic-release/git
@@ -192,7 +190,6 @@ jobs:
           dry-run: 'true'
           no-ci: 'true'  # Skip CI detection to allow version analysis in PR context
           skip-checkout: 'true'  # Skip checkout since we already have .releaserc configured
-          branch-override: ${{ github.head_ref }}  # Override branch for PR testing
           semantic-version: ${{ matrix.semantic-version }}
 
       - name: Validate Version Compatibility
