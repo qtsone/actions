@@ -49,10 +49,6 @@ inputs:
     description: 'Skip the checkout step (useful when checkout is already done in workflow)'
     required: false
     default: 'false'
-  github-ref-override:
-    description: 'Override GITHUB_REF for branch detection (useful for PR testing)'
-    required: false
-    default: ''
 
 outputs:
   new_release_published:
@@ -67,14 +63,14 @@ runs:
   steps:
     - name: Checkout code
       if: inputs.skip-checkout != 'true'
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
       with:
         ssh-key: ${{ inputs.ssh-key }}
         token: ${{ inputs.github-token }}
         fetch-depth: 0
 
     - name: Setup Node.js
-      uses: actions/setup-node@v3
+      uses: actions/setup-node@v6
       with:
         node-version: ${{ inputs.node-version }}
 
@@ -125,23 +121,14 @@ runs:
 
         echo "=== Running semantic-release ==="
 
-        # Override environment variables for semantic-release if github-ref-override is provided
-        if [ -n "${{ inputs.github-ref-override }}" ]; then
-          export GITHUB_REF="${{ inputs.github-ref-override }}"
-          export GITHUB_EVENT_NAME="push"
-          echo "Overriding GitHub context:"
-          echo "  GITHUB_REF: ${GITHUB_REF}"
-          echo "  GITHUB_EVENT_NAME: ${GITHUB_EVENT_NAME}"
-        fi
-
-        # Debug: Show relevant environment variables
-        if [ "${{ inputs.debug }}" = "true" ]; then
-          echo "Environment variables:"
-          echo "  GITHUB_REF: ${GITHUB_REF}"
-          echo "  GITHUB_HEAD_REF: ${GITHUB_HEAD_REF:-not set}"
-          echo "  GITHUB_BASE_REF: ${GITHUB_BASE_REF:-not set}"
-          echo "  GITHUB_EVENT_NAME: ${GITHUB_EVENT_NAME}"
-          echo "  git symbolic-ref HEAD: $(git symbolic-ref HEAD 2>/dev/null || echo 'none')"
+        # Override GITHUB_REF for PR contexts
+        # In PRs, GITHUB_REF is refs/pull/N/merge (merge commit)
+        # But semantic-release needs refs/heads/branch-name to match branch config
+        if [ -n "${{ github.head_ref }}" ]; then
+          export GITHUB_REF="refs/heads/${{ github.head_ref }}"
+          echo "PR context detected - overriding GITHUB_REF to: $GITHUB_REF"
+        else
+          echo "GITHUB_REF: $GITHUB_REF"
         fi
 
         # Set debug mode if enabled
@@ -159,13 +146,6 @@ runs:
         if [ "${{ inputs.no-ci }}" = "true" ]; then
           SR_CMD="$SR_CMD --no-ci"
           echo "CI detection disabled (--no-ci flag enabled)"
-        fi
-        if [ -n "${{ inputs.github-ref-override }}" ]; then
-          # Extract branch name from refs/heads/branch-name
-          BRANCH_NAME="${{ inputs.github-ref-override }}"
-          BRANCH_NAME="${BRANCH_NAME#refs/heads/}"
-          SR_CMD="$SR_CMD --branches $BRANCH_NAME"
-          echo "Branch override: $BRANCH_NAME"
         fi
 
         # Run semantic-release and capture output

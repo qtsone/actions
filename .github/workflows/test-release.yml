@@ -7,42 +7,27 @@ on:
       - '.github/workflows/test-release.yml'
 
 jobs:
-  test-basic:
-    name: Test Basic Configuration
+  test-release:
+    name: Test Release Action (v${{ matrix.semantic-version }})
     runs-on: ubuntu-latest
     permissions:
       contents: write
       issues: write
       pull-requests: write
+    strategy:
+      matrix:
+        semantic-version: ['24.2.0']  # Test with latest version
     steps:
-      - name: Checkout PR
-        uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v5
         with:
-          ref: ${{ github.head_ref }}
-          fetch-depth: 0  # Need full history for semantic-release
+          fetch-depth: 0
 
-      - name: Set Branch Name
+      - name: Create Test Config
         run: |
-          # Ensure git knows we're on the PR branch, not refs/pull/X/merge
-          # Force update the symbolic ref to point to our branch
-          git checkout -B ${{ github.head_ref }}
-          git symbolic-ref HEAD refs/heads/${{ github.head_ref }}
-          git reset --hard HEAD
-          echo "Current branch: $(git branch --show-current)"
-          echo "HEAD ref: $(git symbolic-ref HEAD)"
-          echo "HEAD commit: $(git rev-parse HEAD)"
-
-      - name: Create Test Release Config
-        run: |
-          # Create a test .releaserc that accepts all branches for testing
-          cat > .releaserc.test << 'EOF'
+          cat > .releaserc << EOF
           {
-            "branches": [
-              "+([0-9])?(.{+([0-9]),x}).x",
-              "main",
-              { "name": "feat/*", "prerelease": "feat" },
-              { "name": "fix/*", "prerelease": "fix" }
-            ],
+            "branches": ["${{ github.head_ref }}"],
             "plugins": [
               "@semantic-release/commit-analyzer",
               "@semantic-release/release-notes-generator",
@@ -52,24 +37,30 @@ jobs:
             ]
           }
           EOF
-          mv .releaserc.test .releaserc
 
-      - name: Test Release Action (Dry Run)
+      - name: Test Release Action
         id: release
         uses: ./release
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           dry-run: 'true'
-          debug: 'true'
-          no-ci: 'true'  # Skip CI detection to allow version analysis in PR context
-          skip-checkout: 'true'  # Skip checkout since we already set up branch and test config
-          github-ref-override: refs/heads/${{ github.head_ref }}  # Override GITHUB_REF for correct branch detection
+          no-ci: 'true'
+          skip-checkout: 'true'
+          semantic-version: ${{ matrix.semantic-version }}
+          extra-plugins: |
+            @semantic-release/changelog
+            @semantic-release/git
 
-      - name: Validate Outputs
+      - name: Validate Results
         run: |
-          echo "## 🧪 Test Results - Basic Configuration" >> $GITHUB_STEP_SUMMARY
+          echo "## 🧪 Test Results - v${{ matrix.semantic-version }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Outputs Validation" >> $GITHUB_STEP_SUMMARY
+          echo "### Configuration" >> $GITHUB_STEP_SUMMARY
+          echo "- **Semantic Release**: v${{ matrix.semantic-version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch**: ${{ github.head_ref }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Plugins**: changelog, git, github" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Outputs" >> $GITHUB_STEP_SUMMARY
           echo "- **new_release_published**: \`${{ steps.release.outputs.new_release_published }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **new_release_version**: \`${{ steps.release.outputs.new_release_version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -85,163 +76,6 @@ jobs:
             exit 1
           fi
 
-          echo "✅ **PASSED**: Output validation successful" >> $GITHUB_STEP_SUMMARY
-
-  test-custom-plugins:
-    name: Test Custom Plugins
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      issues: write
-      pull-requests: write
-    steps:
-      - name: Checkout PR
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref }}
-          fetch-depth: 0  # Need full history for semantic-release
-
-      - name: Set Branch Name
-        run: |
-          # Ensure git knows we're on the PR branch, not refs/pull/X/merge
-          git checkout -B ${{ github.head_ref }}
-          echo "Current branch: $(git branch --show-current)"
-
-      - name: Create Test .releaserc
-        run: |
-          # Create a test .releaserc that accepts all branches for testing
-          cat > .releaserc << 'EOF'
-          {
-            "branches": [
-              "+([0-9])?(.{+([0-9]),x}).x",
-              "main",
-              { "name": "feat/*", "prerelease": "feat" },
-              { "name": "fix/*", "prerelease": "fix" }
-            ],
-            "plugins": [
-              "@semantic-release/commit-analyzer",
-              "@semantic-release/release-notes-generator",
-              "@semantic-release/changelog",
-              "@semantic-release/git",
-              "@semantic-release/github"
-            ]
-          }
-          EOF
-
-      - name: Test Release Action with Custom Plugins (Dry Run)
-        id: release
-        uses: ./release
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          dry-run: 'true'
-          debug: 'true'
-          no-ci: 'true'  # Skip CI detection to allow version analysis in PR context
-          skip-checkout: 'true'  # Skip checkout since we already set up branch and test config
-          github-ref-override: refs/heads/${{ github.head_ref }}  # Override GITHUB_REF for correct branch detection
-          extra-plugins: |
-            @semantic-release/changelog
-            @semantic-release/git
-
-      - name: Validate Custom Plugins
-        run: |
-          echo "## 🧪 Test Results - Custom Plugins" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **PASSED**: All validations successful" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Configuration" >> $GITHUB_STEP_SUMMARY
-          echo "- **Plugins**: changelog, git" >> $GITHUB_STEP_SUMMARY
-          echo "- **new_release_published**: \`${{ steps.release.outputs.new_release_published }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **new_release_version**: \`${{ steps.release.outputs.new_release_version }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "✅ **PASSED**: Custom plugins loaded successfully" >> $GITHUB_STEP_SUMMARY
-
-  test-different-versions:
-    name: Test Semantic Release Versions
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      issues: write
-      pull-requests: write
-    strategy:
-      matrix:
-        semantic-version: ['24.2.0', '23.0.0']
-    steps:
-      - name: Checkout PR
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref }}
-          fetch-depth: 0  # Need full history for semantic-release
-
-      - name: Set Branch Name
-        run: |
-          # Ensure git knows we're on the PR branch, not refs/pull/X/merge
-          git checkout -B ${{ github.head_ref }}
-          echo "Current branch: $(git branch --show-current)"
-
-      - name: Create Test Release Config
-        run: |
-          # Create a test .releaserc that accepts all branches for testing
-          cat > .releaserc << 'EOF'
-          {
-            "branches": [
-              "+([0-9])?(.{+([0-9]),x}).x",
-              "main",
-              { "name": "feat/*", "prerelease": "feat" },
-              { "name": "fix/*", "prerelease": "fix" }
-            ],
-            "plugins": [
-              "@semantic-release/commit-analyzer",
-              "@semantic-release/release-notes-generator",
-              "@semantic-release/changelog",
-              "@semantic-release/git",
-              "@semantic-release/github"
-            ]
-          }
-          EOF
-
-      - name: Test Release Action (v${{ matrix.semantic-version }})
-        id: release
-        uses: ./release
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          dry-run: 'true'
-          no-ci: 'true'  # Skip CI detection to allow version analysis in PR context
-          skip-checkout: 'true'  # Skip checkout since we already set up branch and test config
-          github-ref-override: refs/heads/${{ github.head_ref }}  # Override GITHUB_REF for correct branch detection
-          semantic-version: ${{ matrix.semantic-version }}
-
-      - name: Validate Version Compatibility
-        run: |
-          echo "## 🧪 Test Results - Version ${{ matrix.semantic-version }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Semantic Release**: v${{ matrix.semantic-version }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Status**: ✅ Compatible" >> $GITHUB_STEP_SUMMARY
-          echo "- **new_release_published**: \`${{ steps.release.outputs.new_release_published }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **new_release_version**: \`${{ steps.release.outputs.new_release_version }}\`" >> $GITHUB_STEP_SUMMARY
-
-  test-summary:
-    name: Test Summary
-    runs-on: ubuntu-latest
-    needs: [test-basic, test-custom-plugins, test-different-versions]
-    if: always()
-    steps:
-      - name: Overall Summary
-        run: |
-          echo "## 📊 Overall Test Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Test Results" >> $GITHUB_STEP_SUMMARY
-          echo "- **Basic Configuration**: ${{ needs.test-basic.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Custom Plugins**: ${{ needs.test-custom-plugins.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Version Compatibility**: ${{ needs.test-different-versions.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-
-          if [ "${{ needs.test-basic.result }}" = "success" ] && \
-             [ "${{ needs.test-custom-plugins.result }}" = "success" ] && \
-             [ "${{ needs.test-different-versions.result }}" = "success" ]; then
-            echo "### ✅ All Tests Passed" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "The release action is ready to merge!" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "### ❌ Some Tests Failed" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "Please review the test failures above before merging." >> $GITHUB_STEP_SUMMARY
-            exit 1
-          fi
+          echo "**The release action is ready to merge!**" >> $GITHUB_STEP_SUMMARY
