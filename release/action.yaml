@@ -121,6 +121,16 @@ runs:
 
         echo "=== Running semantic-release ==="
 
+        # Override GITHUB_REF for PR contexts
+        # In PRs, GITHUB_REF is refs/pull/N/merge (merge commit)
+        # But semantic-release needs refs/heads/branch-name to match branch config
+        if [ -n "${{ github.head_ref }}" ]; then
+          export GITHUB_REF="refs/heads/${{ github.head_ref }}"
+          echo "PR context detected - overriding GITHUB_REF to: $GITHUB_REF"
+        else
+          echo "GITHUB_REF: $GITHUB_REF"
+        fi
+
         # Set debug mode if enabled
         if [ "${{ inputs.debug }}" = "true" ]; then
           export DEBUG="semantic-release:*"

@@ -55,10 +55,6 @@ jobs:
       - name: Test Release Action (Dry Run)
         id: release
         uses: ./release
-        env:
-          # Override GITHUB_REF for PR context so semantic-release detects the correct branch
-          # In PRs, GITHUB_REF is refs/pull/N/merge, but we need refs/heads/branch-name
-          GITHUB_REF: refs/heads/${{ github.head_ref }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           dry-run: 'true'
@@ -130,9 +126,6 @@ jobs:
       - name: Test Release Action with Custom Plugins (Dry Run)
         id: release
         uses: ./release
-        env:
-          # Override GITHUB_REF for PR context so semantic-release detects the correct branch
-          GITHUB_REF: refs/heads/${{ github.head_ref }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           dry-run: 'true'
@@ -198,9 +191,6 @@ jobs:
       - name: Test Release Action (v${{ matrix.semantic-version }})
         id: release
         uses: ./release
-        env:
-          # Override GITHUB_REF for PR context so semantic-release detects the correct branch
-          GITHUB_REF: refs/heads/${{ github.head_ref }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           dry-run: 'true'
