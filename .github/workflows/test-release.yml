@@ -1,0 +1,81 @@
+name: Test Release Action
+
+on:
+  pull_request:
+    paths:
+      - 'release/**'
+      - '.github/workflows/test-release.yml'
+
+jobs:
+  test-release:
+    name: Test Release Action (v${{ matrix.semantic-version }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    strategy:
+      matrix:
+        semantic-version: ['24.2.0']  # Test with latest version
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Create Test Config
+        run: |
+          cat > .releaserc << EOF
+          {
+            "branches": ["${{ github.head_ref }}"],
+            "plugins": [
+              "@semantic-release/commit-analyzer",
+              "@semantic-release/release-notes-generator",
+              "@semantic-release/changelog",
+              "@semantic-release/git",
+              "@semantic-release/github"
+            ]
+          }
+          EOF
+
+      - name: Test Release Action
+        id: release
+        uses: ./release
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          dry-run: 'true'
+          no-ci: 'true'
+          skip-checkout: 'true'
+          semantic-version: ${{ matrix.semantic-version }}
+          extra-plugins: |
+            @semantic-release/changelog
+            @semantic-release/git
+
+      - name: Validate Results
+        run: |
+          echo "## 🧪 Test Results - v${{ matrix.semantic-version }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Configuration" >> $GITHUB_STEP_SUMMARY
+          echo "- **Semantic Release**: v${{ matrix.semantic-version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch**: ${{ github.head_ref }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Plugins**: changelog, git, github" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Outputs" >> $GITHUB_STEP_SUMMARY
+          echo "- **new_release_published**: \`${{ steps.release.outputs.new_release_published }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **new_release_version**: \`${{ steps.release.outputs.new_release_version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Validate output format
+          if [ "${{ steps.release.outputs.new_release_published }}" != "true" ] && [ "${{ steps.release.outputs.new_release_published }}" != "false" ]; then
+            echo "❌ **FAILED**: new_release_published must be 'true' or 'false'" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+
+          if [ "${{ steps.release.outputs.new_release_published }}" = "true" ] && [ -z "${{ steps.release.outputs.new_release_version }}" ]; then
+            echo "❌ **FAILED**: new_release_version must be set when release is published" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+
+          echo "✅ **PASSED**: All validations successful" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**The release action is ready to merge!**" >> $GITHUB_STEP_SUMMARY

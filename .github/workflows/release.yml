@@ -1,0 +1,46 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '**.md'
+      - '.gitignore'
+      - 'LICENSE'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write       # to be able to publish a GitHub release
+      issues: write         # to be able to comment on released issues
+      pull-requests: write  # to be able to comment on released pull requests
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Semantic Release
+        id: release
+        uses: ./release  # Use the local release action
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Release Summary
+        if: steps.release.outputs.new_release_published == 'true'
+        run: |
+          echo "## 🚀 New Release Published" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** v${{ steps.release.outputs.new_release_version }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "The release has been published successfully!" >> $GITHUB_STEP_SUMMARY
+          echo "Check the [releases page](https://github.com/${{ github.repository }}/releases) for details." >> $GITHUB_STEP_SUMMARY
+
+      - name: No Release Summary
+        if: steps.release.outputs.new_release_published == 'false'
+        run: |
+          echo "## ℹ️ No Release" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "No new release was created. Either:" >> $GITHUB_STEP_SUMMARY
+          echo "- No conventional commits since last release" >> $GITHUB_STEP_SUMMARY
+          echo "- No breaking changes, features, or fixes found" >> $GITHUB_STEP_SUMMARY

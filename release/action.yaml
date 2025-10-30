@@ -17,7 +17,7 @@ inputs:
     required: false
   semantic-version:
     description: 'Semantic version for release.'
-    default: '21.1.1'
+    default: '24.2.0'
     required: false
   debug:
     description: 'Debug flag for semantic release (optional).'
@@ -35,6 +35,20 @@ inputs:
     description: 'Add a suffix for generated Tag'
     required: false
     default: ''
+  extra-plugins:
+    description: 'Additional semantic-release plugins to install (one per line). Default includes changelog and git plugins.'
+    required: false
+    default: |
+      @semantic-release/changelog
+      @semantic-release/git
+  no-ci:
+    description: 'Skip CI detection (useful for testing in PR context)'
+    required: false
+    default: 'false'
+  skip-checkout:
+    description: 'Skip the checkout step (useful when checkout is already done in workflow)'
+    required: false
+    default: 'false'
 
 outputs:
   new_release_published:
@@ -48,28 +62,160 @@ runs:
   using: 'composite'
   steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      if: inputs.skip-checkout != 'true'
+      uses: actions/checkout@v5
       with:
         ssh-key: ${{ inputs.ssh-key }}
         token: ${{ inputs.github-token }}
+        fetch-depth: 0
 
     - name: Setup Node.js
-      uses: actions/setup-node@v3
+      uses: actions/setup-node@v6
       with:
         node-version: ${{ inputs.node-version }}
 
-    - name: Semantic Release
+    - name: Install semantic-release and plugins
+      shell: bash
+      run: |
+        set -e
+
+        echo "=== Installing semantic-release and plugins ==="
+
+        # Convert multi-line extra-plugins input to space-separated list
+        PLUGINS_INPUT="${{ inputs.extra-plugins }}"
+        PLUGINS_LIST=$(echo "$PLUGINS_INPUT" | tr '\n' ' ' | xargs)
+
+        echo "Semantic-release version: ${{ inputs.semantic-version }}"
+        echo "Additional plugins: $PLUGINS_LIST"
+
+        # Check if package.json exists
+        PACKAGE_JSON_EXISTS=false
+        if [ -f "package.json" ]; then
+          PACKAGE_JSON_EXISTS=true
+          echo "Found existing package.json"
+        else
+          echo "No package.json found, creating minimal one"
+          echo '{"private": true, "name": "temp-semantic-release"}' > package.json
+        fi
+
+        # Install semantic-release and plugins
+        # Using --no-save to avoid modifying package.json unnecessarily
+        # Using --legacy-peer-deps to handle potential peer dependency conflicts
+        npm install --no-save --legacy-peer-deps \
+          semantic-release@${{ inputs.semantic-version }} \
+          $PLUGINS_LIST
+
+        # Clean up package.json if we created it
+        if [ "$PACKAGE_JSON_EXISTS" = "false" ]; then
+          echo "Removing temporary package.json"
+          rm -f package.json package-lock.json
+        fi
+
+        echo "✓ Installation complete"
+
+    - name: Run semantic-release
       id: semantic
-      uses: cycjimmy/semantic-release-action@v4
-      with:
-        ci: true
-        semantic_version: ${{ inputs.semantic-version }}
-        extra_plugins: |
-          @semantic-release/changelog
-          @semantic-release/git
-        working_directory: .
-        tag_format: ${{ inputs.tag-prefix }}${version}${{ inputs.tag-suffix }}
-        dry_run: ${{ inputs.dry-run }}
+      shell: bash
+      run: |
+        set -e
+
+        echo "=== Running semantic-release ==="
+
+        # Override GITHUB_REF for PR contexts
+        # In PRs, GITHUB_REF is refs/pull/N/merge (merge commit)
+        # But semantic-release needs refs/heads/branch-name to match branch config
+        if [ -n "${{ github.head_ref }}" ]; then
+          export GITHUB_REF="refs/heads/${{ github.head_ref }}"
+          echo "PR context detected - overriding GITHUB_REF to: $GITHUB_REF"
+        else
+          echo "GITHUB_REF: $GITHUB_REF"
+        fi
+
+        # Set debug mode if enabled
+        if [ "${{ inputs.debug }}" = "true" ]; then
+          export DEBUG="semantic-release:*"
+          echo "Debug mode enabled"
+        fi
+
+        # Prepare semantic-release command
+        SR_CMD="npx semantic-release"
+        if [ "${{ inputs.dry-run }}" = "true" ]; then
+          SR_CMD="$SR_CMD --dry-run"
+          echo "Running in DRY-RUN mode (no actual release will be created)"
+        fi
+        if [ "${{ inputs.no-ci }}" = "true" ]; then
+          SR_CMD="$SR_CMD --no-ci"
+          echo "CI detection disabled (--no-ci flag enabled)"
+        fi
+
+        # Run semantic-release and capture output
+        OUTPUT_FILE=$(mktemp)
+        echo "Executing: $SR_CMD"
+        echo ""
+
+        # Run semantic-release with output capture
+        set +e  # Don't exit on error, we need to process output
+        $SR_CMD 2>&1 | tee "$OUTPUT_FILE"
+        SR_EXIT_CODE=${PIPESTATUS[0]}
+        set -e
+
+        echo ""
+        echo "=== Parsing semantic-release output ==="
+
+        # Initialize outputs with defaults
+        NEW_RELEASE_PUBLISHED="false"
+        NEW_RELEASE_VERSION=""
+
+        # Parse output for release information
+        # Look for patterns like:
+        # - "Published release 1.2.3" (success case)
+        # - "There are no relevant changes" (no release case)
+        # - "The next release version is X.Y.Z" (version determination)
+
+        if grep -q "Published release" "$OUTPUT_FILE"; then
+          NEW_RELEASE_PUBLISHED="true"
+          # Extract version number from "Published release X.Y.Z" or similar
+          NEW_RELEASE_VERSION=$(grep -oP "Published release \K[0-9]+\.[0-9]+\.[0-9]+" "$OUTPUT_FILE" | head -n 1)
+          echo "✓ Release published: $NEW_RELEASE_VERSION"
+        elif grep -qE "(There are no relevant changes|no new version|skip release)" "$OUTPUT_FILE"; then
+          NEW_RELEASE_PUBLISHED="false"
+          echo "ℹ No new release (no relevant changes)"
+        elif grep -q "The next release version is" "$OUTPUT_FILE"; then
+          # Dry-run mode shows what version would be released
+          NEW_RELEASE_VERSION=$(grep -oP "The next release version is \K[0-9]+\.[0-9]+\.[0-9]+" "$OUTPUT_FILE" | head -n 1)
+          if [ "${{ inputs.dry-run }}" = "true" ]; then
+            NEW_RELEASE_PUBLISHED="false"
+            echo "ℹ Dry-run mode: would publish version $NEW_RELEASE_VERSION"
+          else
+            NEW_RELEASE_PUBLISHED="true"
+            echo "✓ Release determined: $NEW_RELEASE_VERSION"
+          fi
+        fi
+
+        # Set GitHub Actions outputs
+        echo "new_release_published=$NEW_RELEASE_PUBLISHED" >> $GITHUB_OUTPUT
+        echo "new_release_version=$NEW_RELEASE_VERSION" >> $GITHUB_OUTPUT
+
+        echo ""
+        echo "=== Outputs ==="
+        echo "new_release_published: $NEW_RELEASE_PUBLISHED"
+        echo "new_release_version: $NEW_RELEASE_VERSION"
+
+        # Clean up
+        rm -f "$OUTPUT_FILE"
+
+        # Exit with semantic-release exit code
+        if [ $SR_EXIT_CODE -ne 0 ]; then
+          echo ""
+          echo "❌ semantic-release failed with exit code $SR_EXIT_CODE"
+          exit $SR_EXIT_CODE
+        fi
+
+        echo ""
+        echo "✓ semantic-release completed successfully"
       env:
         GITHUB_TOKEN: ${{ inputs.github-token }}
-        DEBUG: ${{ inputs.debug }}
+        GIT_AUTHOR_NAME: ${{ github.actor }}
+        GIT_AUTHOR_EMAIL: ${{ github.actor }}@users.noreply.github.com
+        GIT_COMMITTER_NAME: ${{ github.actor }}
+        GIT_COMMITTER_EMAIL: ${{ github.actor }}@users.noreply.github.com
