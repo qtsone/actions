@@ -1,3 +1,10 @@
+## [1.0.1](https://github.com/qtsone/actions/compare/v1.0.0...v1.0.1) (2026-01-13)
+
+
+### Bug Fixes
+
+* **docker:** refactor and minor fixes ([eb0e5d7](https://github.com/qtsone/actions/commit/eb0e5d71f9a77575f7458d3670d89b7931bff58c))
+
 # 1.0.0 (2025-10-30)
 
 
