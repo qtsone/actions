@@ -1,53 +1,58 @@
-name: 'Build'
-description: 'Build image and push to GitHub Packages'
+name: "Build"
+description: "Build image and push to GitHub Packages"
 inputs:
   image-name:
-    description: 'Name of the Docker image'
+    description: "Name of the Docker image"
     required: true
   dockerfile-path:
-    description: 'Path to the Dockerfile'
+    description: "Path to the Dockerfile"
     required: false
-    default: 'Dockerfile'
+    default: "Dockerfile"
   context:
-    description: 'Build Context'
+    description: "Build Context"
     required: false
-    default: '.'
+    default: "."
   build-args:
     description: 'Adds support for Dockerfile build arguments. Ex: "BUILD_UID=1001'
     required: false
-    default: ''
+    default: ""
   tag-latest:
-    description: 'Add latest for generated Docker Tag'
+    description: "Add latest for generated Docker Tag"
     required: false
-    default: 'auto'
+    default: "auto"
   tag-prefix:
-    description: 'Add prefix for generated Docker Tag'
+    description: "Add prefix for generated Docker Tag"
     required: false
-    default: ''
+    default: ""
   tag-prefix-latest:
-    description: 'Add prefix for latest Docker Tag'
+    description: "Add prefix for latest Docker Tag"
     required: false
-    default: 'false'
+    default: "false"
   tag-suffix:
-    description: 'Add a suffix for generated Docker Tag'
+    description: "Add a suffix for generated Docker Tag"
     required: false
-    default: ''
+    default: ""
   tag-suffix-latest:
-    description: 'Add suffix for latest Docker Tag'
+    description: "Add suffix for latest Docker Tag"
     required: false
-    default: 'false'
+    default: "false"
   github-token:
-    description: 'GitHub token'
+    description: "GitHub token"
     required: true
   registry:
-    description: 'GitHub Packages registry'
+    description: "GitHub Packages registry"
     required: false
-    default: 'ghcr.io'
+    default: "ghcr.io"
+  checkout:
+    description: "Checkout code"
+    required: false
+    default: "true"
 
 runs:
-  using: 'composite'
+  using: "composite"
   steps:
     - name: Checkout code
+      if: ${{ inputs.checkout == 'true' }}
       uses: actions/checkout@v4
 
     - name: Set up Docker Buildx
