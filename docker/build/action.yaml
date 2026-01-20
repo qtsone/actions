@@ -47,6 +47,10 @@ inputs:
     description: "Checkout code"
     required: false
     default: "true"
+  tags:
+    description: "Additional tags (newline separated)"
+    required: false
+    default: ""
 
 runs:
   using: "composite"
@@ -85,7 +89,9 @@ runs:
         context: ${{ inputs.context }}
         file: ${{ inputs.dockerfile-path }}
         push: true
-        tags: ${{ steps.meta.outputs.tags }}
+        tags: |
+          ${{ steps.meta.outputs.tags }}
+          ${{ inputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         cache-from: type=registry,ref=${{ inputs.registry }}/${{ inputs.image-name }}:cache
         cache-to: type=registry,mode=max,ref=${{ inputs.registry }}/${{ inputs.image-name }}:cache
