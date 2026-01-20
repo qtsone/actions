@@ -90,8 +90,7 @@ runs:
         file: ${{ inputs.dockerfile-path }}
         push: true
         tags: |
-          ${{ steps.meta.outputs.tags }}
-          ${{ inputs.tags }}
+          ${{ inputs.tags != '' && inputs.tags || steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         cache-from: type=registry,ref=${{ inputs.registry }}/${{ inputs.image-name }}:cache
         cache-to: type=registry,mode=max,ref=${{ inputs.registry }}/${{ inputs.image-name }}:cache
