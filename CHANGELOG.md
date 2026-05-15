@@ -1,3 +1,10 @@
+## [1.3.2](https://github.com/qtsone/actions/compare/v1.3.1...v1.3.2) (2026-05-15)
+
+
+### Bug Fixes
+
+* update Trivy action reference to use version tag for consistency ([32b75a2](https://github.com/qtsone/actions/commit/32b75a2166a5c422fa70cd095200e494ec31da29))
+
 ## [1.3.1](https://github.com/qtsone/actions/compare/v1.3.0...v1.3.1) (2026-05-15)
 
 
