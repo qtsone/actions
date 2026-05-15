@@ -191,7 +191,7 @@ runs:
 
     - name: Run Trivy vulnerability scanner
       id: trivy
-      uses: aquasecurity/trivy-action@0.33.1
+      uses: aquasecurity/trivy-action@0.36.0
       with:
         exit-code: "1"
         ignore-unfixed: true
