@@ -31,6 +31,13 @@ main() {
   local commit_user_name commit_user_email
   local mode_count image_spec before_file after_file changed target_ref
 
+  before_file=""
+  after_file=""
+  cleanup_tempfiles() {
+    rm -f "${before_file:-}" "${after_file:-}"
+  }
+  trap cleanup_tempfiles EXIT
+
   overlay_path="$(trim "${OVERLAY_PATH:-}")"
   image_name="$(trim "${IMAGE_NAME:-}")"
   new_name="$(trim "${NEW_NAME:-}")"
@@ -79,7 +86,6 @@ main() {
 
   before_file="$(mktemp)"
   after_file="$(mktemp)"
-  trap 'rm -f "${before_file}" "${after_file}"' EXIT
 
   cp "${overlay_path_abs}/kustomization.yaml" "${before_file}"
 

@@ -198,11 +198,11 @@ jobs:
         run: |
           set -euo pipefail
 
-          stale_guard_run=$(yq -r '.runs.steps[] | select(.id == "stale-sha-guard") | .run // ""' docker/tests/action.yaml)
+          stale_guard_script=$(yq -r '.runs.steps[] | select(.id == "stale-sha-guard") | .with.script // ""' docker/tests/action.yaml)
           add_label_if=$(yq -r '.runs.steps[] | select(.id == "add-ready-label") | .if // ""' docker/tests/action.yaml)
           finalize_run=$(yq -r '.runs.steps[] | select(.id == "finalize") | .run // ""' docker/tests/action.yaml)
 
-          printf '%s\n' "${stale_guard_run}" | grep -q 'const stale = liveSha !== expectedSha'
+          printf '%s\n' "${stale_guard_script}" | grep -q 'const stale = liveSha !== expectedSha'
           printf '%s\n' "${finalize_run}" | grep -q '\[ "${stale_pr_head}" != "true" \]'
           printf '%s\n' "${add_label_if}" | grep -q "steps.finalize.outputs.ready_allowed == 'true'"
 

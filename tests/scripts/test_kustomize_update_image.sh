@@ -105,6 +105,16 @@ run_implemented_checks() {
   assert_contains "$script_content" "kustomize build" "Update script must validate overlay build before commit"
   assert_contains "$script_content" "chore(deploy): update production image [skip ci]" "Update script must include default commit message"
   assert_contains "$script_content" "conflict" "Update script must report push-conflict behavior"
+
+  local output rc
+  set +e
+  output="$(env -i PATH="$PATH" bash "$UPDATE_SCRIPT" 2>&1)"
+  rc=$?
+  set -e
+  [[ $rc -ne 0 ]] || fail "Update script should fail when required inputs are missing"
+  [[ "$output" != *"unbound variable"* ]] || fail "Update script trap must be safe under set -u"
+  [[ "$output" == *"overlay-path is required"* ]] || fail "Expected overlay-path validation failure when inputs are missing"
+
   pass "Update-image implementation includes required contract primitives"
 }
 
