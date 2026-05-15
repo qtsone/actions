@@ -1,3 +1,17 @@
+# [1.2.0](https://github.com/qtsone/actions/compare/v1.1.0...v1.2.0) (2026-01-20)
+
+
+### Features
+
+* allow specifying additional custom tags for Docker images ([5e12f8b](https://github.com/qtsone/actions/commit/5e12f8b8e394ce596d4b90ff3286834c441be6bc))
+
+# [1.1.0](https://github.com/qtsone/actions/compare/v1.0.1...v1.1.0) (2026-01-14)
+
+
+### Features
+
+* **docker:** allow skipping checkout in build action ([921a80f](https://github.com/qtsone/actions/commit/921a80f52bb65bf32d29e981f8c5ee4a6ac4d3e7))
+
 ## [1.0.1](https://github.com/qtsone/actions/compare/v1.0.0...v1.0.1) (2026-01-13)
 
 
