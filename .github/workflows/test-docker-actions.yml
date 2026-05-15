@@ -1,0 +1,238 @@
+name: Test Docker Actions
+
+on:
+  pull_request:
+    paths:
+      - 'docker/build/**'
+      - 'docker/tests/**'
+      - '.github/workflows/test-docker-actions.yml'
+
+jobs:
+  validate-docker-build-outputs:
+    name: Validate docker/build declared outputs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Verify output keys exist in action metadata
+        run: |
+          set -euo pipefail
+
+          required_keys=(
+            image
+            tag
+            tags
+            digest
+            image-tag
+            image-digest
+          )
+
+          for key in "${required_keys[@]}"; do
+            value=$(yq -r ".outputs.\"${key}\".value // \"\"" docker/build/action.yaml)
+            if [ -z "${value}" ]; then
+              echo "Missing output key or value mapping: ${key}" >&2
+              exit 1
+            fi
+          done
+
+      - name: Verify workflow references all six outputs
+        run: |
+          set -euo pipefail
+
+          output_refs=$(yq -r '.jobs.validate-docker-build-outputs.steps[].run // ""' .github/workflows/test-docker-actions.yml)
+          for key in image tag tags digest image-tag image-digest; do
+            if ! printf '%s\n' "${output_refs}" | grep -q "${key}"; then
+              echo "Expected workflow validation reference for output: ${key}" >&2
+              exit 1
+            fi
+          done
+
+  validate-docker-tests-contract:
+    name: Validate docker/tests preview readiness contract
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Verify required input defaults exist
+        run: |
+          set -euo pipefail
+
+          declare -A required_defaults=(
+            [preview-push-enabled]="true"
+            [ready-label-enabled]="true"
+            [ready-label-name]="ready"
+            [scan-required]="true"
+            [scan-severity-threshold]="CRITICAL"
+            [pr-comment-enabled]="false"
+          )
+
+          for key in "${!required_defaults[@]}"; do
+            actual=$(yq -r ".inputs.\"${key}\".default // \"\"" docker/tests/action.yaml)
+            expected="${required_defaults[$key]}"
+            if [ "${actual}" != "${expected}" ]; then
+              echo "Expected input '${key}' default '${expected}', got '${actual}'" >&2
+              exit 1
+            fi
+          done
+
+      - name: Verify required inputs are declared
+        run: |
+          set -euo pipefail
+
+          required_inputs=(
+            pr-number
+            pr-head-sha
+            preview-push-enabled
+            ready-label-enabled
+            ready-label-name
+            scan-required
+            scan-severity-threshold
+            pr-comment-enabled
+          )
+
+          for key in "${required_inputs[@]}"; do
+            exists=$(yq -r ".inputs.\"${key}\" | type" docker/tests/action.yaml)
+            if [ "${exists}" = "null" ]; then
+              echo "Missing required input: ${key}" >&2
+              exit 1
+            fi
+          done
+
+      - name: Verify standardized outputs are declared
+        run: |
+          set -euo pipefail
+
+          required_outputs=(image tag tags digest image-tag image-digest)
+          for key in "${required_outputs[@]}"; do
+            value=$(yq -r ".outputs.\"${key}\".value // \"\"" docker/tests/action.yaml)
+            if [ -z "${value}" ]; then
+              echo "Missing output key or value mapping: ${key}" >&2
+              exit 1
+            fi
+          done
+
+      - name: Verify immutable HEAD_SHA tag strategy only
+        run: |
+          set -euo pipefail
+
+          if yq -r '.runs.steps[]?.with.tags // ""' docker/tests/action.yaml | grep -q 'pr-'; then
+            echo "Mutable pr-<number> tag detected in docker/tests action" >&2
+            exit 1
+          fi
+
+          if ! yq -r '.runs.steps[]?.run // ""' docker/tests/action.yaml | grep -q 'pr_head_sha'; then
+            echo "Expected script to derive immutable HEAD_SHA tag" >&2
+            exit 1
+          fi
+
+      - name: Verify eligible PR success path contract
+        run: |
+          set -euo pipefail
+
+          derive_run=$(yq -r '.runs.steps[] | select(.id == "derive-context") | .run // ""' docker/tests/action.yaml)
+          finalize_run=$(yq -r '.runs.steps[] | select(.id == "finalize") | .run // ""' docker/tests/action.yaml)
+          preview_if=$(yq -r '.runs.steps[] | select(.id == "preview-push") | .if // ""' docker/tests/action.yaml)
+
+          printf '%s\n' "${derive_run}" | grep -q 'eligible_for_preview="true"'
+          printf '%s\n' "${derive_run}" | grep -q 'if \[ -n "${pr_number}" \] && \[ "${same_repo_pr}" = "true" \]'
+          printf '%s\n' "${preview_if}" | grep -q "steps.derive-context.outputs.eligible_for_preview == 'true'"
+          printf '%s\n' "${preview_if}" | grep -q "inputs.preview-push-enabled == 'true'"
+          printf '%s\n' "${preview_if}" | grep -q "steps.build-image.outcome == 'success'"
+          printf '%s\n' "${preview_if}" | grep -q "steps.stale-sha-guard.outputs.stale_pr_head != 'true'"
+          printf '%s\n' "${finalize_run}" | grep -q 'if \[ "${ELIGIBLE}" = "true" \] && \[ "${READY_LABEL_ENABLED}" = "true" \] && \[ "${build_pass}" = "true" \] && \[ "${push_pass}" = "true" \] && \[ "${stale_pr_head}" != "true" \]'
+
+      - name: Verify fork skip path contract
+        run: |
+          set -euo pipefail
+
+          mark_fork_if=$(yq -r '.runs.steps[] | select(.name == "Mark fork PR skip") | .if // ""' docker/tests/action.yaml)
+          mark_fork_run=$(yq -r '.runs.steps[] | select(.name == "Mark fork PR skip") | .run // ""' docker/tests/action.yaml)
+
+          printf '%s\n' "${mark_fork_if}" | grep -q "steps.derive-context.outputs.eligible_for_preview != 'true'"
+          printf '%s\n' "${mark_fork_run}" | grep -q 'fork PR or non-PR context detected: preview publish and label lifecycle skipped by default.'
+
+      - name: Verify scan-required false permits push/readiness despite scan failure
+        run: |
+          set -euo pipefail
+
+          preview_if=$(yq -r '.runs.steps[] | select(.id == "preview-push") | .if // ""' docker/tests/action.yaml)
+          finalize_run=$(yq -r '.runs.steps[] | select(.id == "finalize") | .run // ""' docker/tests/action.yaml)
+
+          if printf '%s\n' "${preview_if}" | grep -q "steps.trivy.outcome == 'success' &&"; then
+            echo "Preview push is hard-gated on Trivy success even when scan-required=false" >&2
+            exit 1
+          fi
+
+          printf '%s\n' "${preview_if}" | grep -q "(inputs.scan-required != 'true' || steps.trivy.outcome == 'success')"
+          printf '%s\n' "${finalize_run}" | grep -q 'if \[ "${scan_required}" = "true" \]; then'
+          printf '%s\n' "${finalize_run}" | grep -q 'else'
+          printf '%s\n' "${finalize_run}" | grep -q 'ready_allowed="true"'
+
+      - name: Verify Trivy action ref is pinned and non-floating
+        run: |
+          set -euo pipefail
+
+          trivy_uses=$(yq -r '.runs.steps[] | select(.id=="trivy") | .uses // ""' docker/tests/action.yaml)
+          if [ -z "${trivy_uses}" ]; then
+            echo "Trivy step or uses reference not found" >&2
+            exit 1
+          fi
+
+          case "${trivy_uses}" in
+            *"@master"|*"@main"|*"@develop"|*"@dev"|*"@HEAD"|*"@latest"|*"@refs/heads/"*)
+              echo "Floating Trivy action ref is not allowed: ${trivy_uses}" >&2
+              exit 1
+              ;;
+          esac
+
+          # Accept immutable commit SHAs or stable release tags.
+          ref="${trivy_uses##*@}"
+          if ! printf '%s\n' "${ref}" | grep -Eq '^[0-9a-f]{40}$|^[vV]?[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$'; then
+            echo "Trivy action ref must be a commit SHA or semver-like release tag: ${trivy_uses}" >&2
+            exit 1
+          fi
+
+      - name: Verify stale SHA mismatch prevents label add
+        run: |
+          set -euo pipefail
+
+          stale_guard_run=$(yq -r '.runs.steps[] | select(.id == "stale-sha-guard") | .run // ""' docker/tests/action.yaml)
+          add_label_if=$(yq -r '.runs.steps[] | select(.id == "add-ready-label") | .if // ""' docker/tests/action.yaml)
+          finalize_run=$(yq -r '.runs.steps[] | select(.id == "finalize") | .run // ""' docker/tests/action.yaml)
+
+          printf '%s\n' "${stale_guard_run}" | grep -q 'const stale = liveSha !== expectedSha'
+          printf '%s\n' "${finalize_run}" | grep -q '\[ "${stale_pr_head}" != "true" \]'
+          printf '%s\n' "${add_label_if}" | grep -q "steps.finalize.outputs.ready_allowed == 'true'"
+
+      - name: Verify outputs/reporting and immutable tag contract
+        run: |
+          set -euo pipefail
+
+          finalize_run=$(yq -r '.runs.steps[] | select(.id == "finalize") | .run // ""' docker/tests/action.yaml)
+          comment_run=$(yq -r '.runs.steps[] | select(.id == "comment") | .run // ""' docker/tests/action.yaml)
+
+          for key in image tag tags digest image-tag image-digest; do
+            value=$(yq -r ".outputs.\"${key}\".value // \"\"" docker/tests/action.yaml)
+            if [ -z "${value}" ]; then
+              echo "Missing output key or value mapping: ${key}" >&2
+              exit 1
+            fi
+          done
+
+          printf '%s\n' "${finalize_run}" | grep -q 'echo "tag=${TAG}"'
+          printf '%s\n' "${finalize_run}" | grep -q 'echo "tags<<EOF"'
+          printf '%s\n' "${comment_run}" | grep -q 'Docker Preview Readiness'
+          if yq -r '.runs.steps[]?.with.tags // ""' docker/tests/action.yaml | grep -q 'pr-'; then
+            echo "Mutable pr-<number> tag detected in docker/tests action" >&2
+            exit 1
+          fi
+
+          step_ids=$(yq -r '.runs.steps[]?.id // ""' docker/tests/action.yaml)
+          for step_id in remove-ready-label add-ready-label stale-sha-guard; do
+            if ! printf '%s\n' "${step_ids}" | grep -q "${step_id}"; then
+              echo "Expected lifecycle step id not found: ${step_id}" >&2
+              exit 1
+            fi
+          done

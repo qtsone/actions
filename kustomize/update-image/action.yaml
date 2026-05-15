@@ -1,0 +1,113 @@
+name: "Kustomize Update Image"
+description: "Update kustomize overlay image reference and optionally commit/push"
+
+inputs:
+  overlay-path:
+    description: "Path to the kustomize overlay containing kustomization.yaml"
+    required: true
+  image-name:
+    description: "Current image name key in kustomization images list"
+    required: true
+  new-name:
+    description: "Optional replacement image repository/name"
+    required: false
+    default: ""
+  tag:
+    description: "Tag-only update target (mutually exclusive with digest/new-ref)"
+    required: false
+    default: ""
+  digest:
+    description: "Digest update target (mutually exclusive with tag/new-ref)"
+    required: false
+    default: ""
+  new-ref:
+    description: "Full image reference target (mutually exclusive with tag/digest)"
+    required: false
+    default: ""
+  target-branch:
+    description: "Branch to receive writeback commit"
+    required: false
+    default: "main"
+  commit:
+    description: "Commit and push mutation when true"
+    required: false
+    default: "true"
+  dry-run:
+    description: "Apply mutation and validation without commit/push"
+    required: false
+    default: "false"
+  skip-install:
+    description: "Skip kustomize installation step"
+    required: false
+    default: "false"
+  kustomize-version:
+    description: "Pinned kustomize version for installer"
+    required: false
+    default: "v5.4.3"
+  commit-message:
+    description: "Commit message used when commit=true"
+    required: false
+    default: "chore(deploy): update production image [skip ci]"
+  commit-user-name:
+    description: "Git commit author name used when commit=true"
+    required: false
+    default: "github-actions[bot]"
+  commit-user-email:
+    description: "Git commit author email used when commit=true"
+    required: false
+    default: "github-actions[bot]@users.noreply.github.com"
+
+outputs:
+  changed:
+    description: "true when overlay file changed"
+    value: ${{ steps.update-image.outputs.changed }}
+  target-ref:
+    description: "Resolved image target reference applied by the action"
+    value: ${{ steps.update-image.outputs.target-ref }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Validate mode selection
+      shell: bash
+      env:
+        TAG: ${{ inputs.tag }}
+        DIGEST: ${{ inputs.digest }}
+        NEW_REF: ${{ inputs.new-ref }}
+      run: |
+        set -euo pipefail
+
+        count=0
+        [ -n "${TAG}" ] && count=$((count + 1))
+        [ -n "${DIGEST}" ] && count=$((count + 1))
+        [ -n "${NEW_REF}" ] && count=$((count + 1))
+
+        if [ "${count}" -ne 1 ]; then
+          echo "exactly one of tag, digest, or new-ref must be set" >&2
+          exit 1
+        fi
+
+    - name: Install kustomize
+      if: ${{ inputs.skip-install != 'true' }}
+      shell: bash
+      env:
+        KUSTOMIZE_VERSION: ${{ inputs.kustomize-version }}
+      run: ${{ github.action_path }}/scripts/install_kustomize.sh
+
+    - name: Update overlay image
+      id: update-image
+      shell: bash
+      env:
+        OVERLAY_PATH: ${{ inputs.overlay-path }}
+        IMAGE_NAME: ${{ inputs.image-name }}
+        NEW_NAME: ${{ inputs.new-name }}
+        TAG: ${{ inputs.tag }}
+        DIGEST: ${{ inputs.digest }}
+        NEW_REF: ${{ inputs.new-ref }}
+        TARGET_BRANCH: ${{ inputs.target-branch }}
+        COMMIT: ${{ inputs.commit }}
+        DRY_RUN: ${{ inputs.dry-run }}
+        COMMIT_MESSAGE: ${{ inputs.commit-message }}
+        COMMIT_USER_NAME: ${{ inputs.commit-user-name }}
+        COMMIT_USER_EMAIL: ${{ inputs.commit-user-email }}
+      run: ${{ github.action_path }}/scripts/update_image.sh

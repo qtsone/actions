@@ -2,6 +2,19 @@
 
 A production-ready, maintainable GitHub Actions composite action for semantic-release that provides full control over automated version management and release processes.
 
+## Scope Boundary
+
+This action is **semantic-release only**: it determines versions, creates tags/releases, and emits release outputs.
+
+It does not build or push container images and does not mutate deployment overlays.
+
+App release flow after a published release is: run `qtsone/actions/docker/build` and then `qtsone/actions/kustomize/update-image`.
+
+## Permissions and Concurrency Guidance
+
+- Use `contents: write`, `issues: write`, and `pull-requests: write` for semantic-release publication and release notes interactions.
+- Use per-release concurrency to avoid duplicate release attempts, for example: `group: release-${{ github.ref_name }}` with `cancel-in-progress: true`.
+
 ## Features
 
 ✅ **Automated Version Management** - Supports version updates across multiple files via custom plugins

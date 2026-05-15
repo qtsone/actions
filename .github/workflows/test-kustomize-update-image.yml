@@ -1,0 +1,464 @@
+name: Test Kustomize Update Image Action
+
+on:
+  pull_request:
+    paths:
+      - 'kustomize/update-image/**'
+      - 'tests/scripts/test_kustomize_installer.sh'
+      - 'tests/scripts/test_kustomize_update_image.sh'
+      - '.github/workflows/test-kustomize-update-image.yml'
+
+jobs:
+  validate-action-metadata:
+    name: Validate action metadata contract
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Validate required inputs/defaults
+        run: |
+          set -euo pipefail
+
+          required_inputs=(overlay-path image-name)
+          for key in "${required_inputs[@]}"; do
+            required=$(yq -r ".inputs.\"${key}\".required // \"false\"" kustomize/update-image/action.yaml)
+            [ "${required}" = "true" ] || { echo "Expected required input: ${key}" >&2; exit 1; }
+          done
+
+          declare -A defaults=(
+            [target-branch]="main"
+            [commit]="true"
+            [dry-run]="false"
+            [skip-install]="false"
+            [kustomize-version]="v5.4.3"
+            [commit-message]="chore(deploy): update production image [skip ci]"
+            [commit-user-name]="github-actions[bot]"
+            [commit-user-email]="github-actions[bot]@users.noreply.github.com"
+          )
+
+          for key in "${!defaults[@]}"; do
+            actual=$(yq -r ".inputs.\"${key}\".default // \"\"" kustomize/update-image/action.yaml)
+            expected="${defaults[$key]}"
+            [ "${actual}" = "${expected}" ] || { echo "Default mismatch for ${key}: ${actual}" >&2; exit 1; }
+          done
+
+      - name: Validate mode-selection guard
+        run: |
+          set -euo pipefail
+          guard=$(yq -r '.runs.steps[] | select(.name == "Validate mode selection") | .run // ""' kustomize/update-image/action.yaml)
+          printf '%s\n' "${guard}" | grep -q 'exactly one of tag, digest, or new-ref'
+
+      - name: Validate install and update steps wiring
+        run: |
+          set -euo pipefail
+
+          install_if=$(yq -r '.runs.steps[] | select(.name == "Install kustomize") | .if // ""' kustomize/update-image/action.yaml)
+          update_run=$(yq -r '.runs.steps[] | select(.id == "update-image") | .run // ""' kustomize/update-image/action.yaml)
+
+          printf '%s\n' "${install_if}" | grep -q "inputs.skip-install != 'true'"
+          printf '%s\n' "${update_run}" | grep -q 'scripts/update_image.sh'
+
+  validate-script-contracts:
+    name: Validate script behavior contracts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Validate installer hardening primitives
+        run: |
+          set -euo pipefail
+          script="kustomize/update-image/scripts/install_kustomize.sh"
+          grep -q 'set -euo pipefail' "${script}"
+          grep -q 'checksum line not found' "${script}"
+          grep -q 'GITHUB_PATH' "${script}"
+
+      - name: Validate update script dry-run/commit/no-op/conflict paths
+        run: |
+          set -euo pipefail
+          script="kustomize/update-image/scripts/update_image.sh"
+          grep -q 'Dry-run: updated image' "${script}"
+          grep -q 'No-op: kustomization already at target image' "${script}"
+          grep -q 'Commit disabled: updated image' "${script}"
+          grep -q 'push conflict while updating' "${script}"
+          grep -q 'kustomize edit set image' "${script}"
+          grep -q 'kustomize build' "${script}"
+          grep -q 'commit-user-name is required when commit=true' "${script}"
+          grep -q 'commit-user-email is required when commit=true' "${script}"
+
+      - name: Execute dry-run scenario (script)
+        run: |
+          set -euo pipefail
+
+          tmp_root="${RUNNER_TEMP}/kustomize-update-image-dry-run"
+          rm -rf "${tmp_root}"
+          mkdir -p "${tmp_root}/bin" "${tmp_root}/repo/overlay"
+
+          cat >"${tmp_root}/repo/overlay/kustomization.yaml" <<'YAML'
+          apiVersion: kustomize.config.k8s.io/v1beta1
+          kind: Kustomization
+          images:
+            - name: ghcr.io/qtsone/forge
+              newTag: old
+          YAML
+
+          cat >"${tmp_root}/bin/kustomize" <<'SH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          cmd="${1:-}"
+          if [[ "${cmd}" == "edit" && "${2:-}" == "set" && "${3:-}" == "image" ]]; then
+            spec="${4:?missing image spec}"
+            name="${spec%%=*}"
+            ref="${spec#*=}"
+            python3 - <<'PY' "${name}" "${ref}"
+          import pathlib
+          import re
+          import sys
+          name, ref = sys.argv[1], sys.argv[2]
+          p = pathlib.Path("kustomization.yaml")
+          s = p.read_text()
+          pat = re.compile(r'(^\s*-\s+name:\s*%s\s*\n)(\s+newTag:\s*[^\n]+|\s+newName:\s*[^\n]+\n\s+newTag:\s*[^\n]+|\s+newDigest:\s*[^\n]+)' % re.escape(name), re.M)
+          if not pat.search(s):
+            sys.exit("image not found")
+          if "@" in ref:
+            new = f"\\1  newName: {ref.split('@',1)[0]}\\n  newDigest: {ref.split('@',1)[1]}"
+          elif ":" in ref:
+            n, t = ref.rsplit(":", 1)
+            new = f"\\1  newName: {n}\\n  newTag: {t}"
+          else:
+            new = f"\\1  newName: {ref}"
+          p.write_text(pat.sub(new, s, count=1))
+          PY
+            exit 0
+          fi
+          if [[ "${cmd}" == "build" ]]; then
+            target="${2:-.}"
+            test -f "${target}/kustomization.yaml"
+            exit 0
+          fi
+          exit 2
+          SH
+          chmod +x "${tmp_root}/bin/kustomize"
+
+          export PATH="${tmp_root}/bin:${PATH}"
+          export OVERLAY_PATH="${tmp_root}/repo/overlay"
+          export IMAGE_NAME="ghcr.io/qtsone/forge"
+          export TAG="new"
+          export DRY_RUN="true"
+          export COMMIT="true"
+
+          output_file="${tmp_root}/outputs"
+          export GITHUB_OUTPUT="${output_file}"
+          bash kustomize/update-image/scripts/update_image.sh | tee "${tmp_root}/run.log"
+
+          grep -q 'Dry-run: updated image to ghcr.io/qtsone/forge:new without commit/push' "${tmp_root}/run.log"
+          grep -q '^changed=true$' "${output_file}"
+          grep -q '^target-ref=ghcr.io/qtsone/forge:new$' "${output_file}"
+
+      - name: Execute commit=true local writeback scenario (script)
+        run: |
+          set -euo pipefail
+
+          tmp_root="${RUNNER_TEMP}/kustomize-update-image-commit"
+          rm -rf "${tmp_root}"
+          mkdir -p "${tmp_root}/bin" "${tmp_root}/work/overlay" "${tmp_root}/remote.git"
+
+          git init --bare "${tmp_root}/remote.git"
+
+          cat >"${tmp_root}/work/overlay/kustomization.yaml" <<'YAML'
+          apiVersion: kustomize.config.k8s.io/v1beta1
+          kind: Kustomization
+          images:
+            - name: ghcr.io/qtsone/forge
+              newTag: old
+          YAML
+
+          cat >"${tmp_root}/bin/kustomize" <<'SH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          cmd="${1:-}"
+          if [[ "${cmd}" == "edit" && "${2:-}" == "set" && "${3:-}" == "image" ]]; then
+            spec="${4:?missing image spec}"
+            name="${spec%%=*}"
+            ref="${spec#*=}"
+            python3 - <<'PY' "${name}" "${ref}"
+          import pathlib
+          import re
+          import sys
+          name, ref = sys.argv[1], sys.argv[2]
+          p = pathlib.Path("kustomization.yaml")
+          s = p.read_text()
+          pat = re.compile(r'(^\s*-\s+name:\s*%s\s*\n)(\s+newTag:\s*[^\n]+|\s+newName:\s*[^\n]+\n\s+newTag:\s*[^\n]+|\s+newDigest:\s*[^\n]+)' % re.escape(name), re.M)
+          if not pat.search(s):
+            sys.exit("image not found")
+          if "@" in ref:
+            new = f"\\1  newName: {ref.split('@',1)[0]}\\n  newDigest: {ref.split('@',1)[1]}"
+          elif ":" in ref:
+            n, t = ref.rsplit(":", 1)
+            new = f"\\1  newName: {n}\\n  newTag: {t}"
+          else:
+            new = f"\\1  newName: {ref}"
+          p.write_text(pat.sub(new, s, count=1))
+          PY
+            exit 0
+          fi
+          if [[ "${cmd}" == "build" ]]; then
+            target="${2:-.}"
+            test -f "${target}/kustomization.yaml"
+            exit 0
+          fi
+          exit 2
+          SH
+          chmod +x "${tmp_root}/bin/kustomize"
+
+          export PATH="${tmp_root}/bin:${PATH}"
+
+          git -C "${tmp_root}/work" init -b main
+          git -C "${tmp_root}/work" config user.name "seed-author"
+          git -C "${tmp_root}/work" config user.email "seed-author@example.invalid"
+          git -C "${tmp_root}/work" remote add origin "${tmp_root}/remote.git"
+          git -C "${tmp_root}/work" add overlay/kustomization.yaml
+          git -C "${tmp_root}/work" commit -m "init"
+          git -C "${tmp_root}/work" config --unset user.name
+          git -C "${tmp_root}/work" config --unset user.email
+          git -C "${tmp_root}/work" push -u origin main
+
+          output_file="${tmp_root}/outputs"
+          (
+            cd "${tmp_root}/work"
+            OVERLAY_PATH="${tmp_root}/work/overlay" \
+            IMAGE_NAME="ghcr.io/qtsone/forge" \
+            TAG="new" \
+            COMMIT="true" \
+            DRY_RUN="false" \
+            TARGET_BRANCH="main" \
+            COMMIT_USER_NAME="writeback-bot" \
+            COMMIT_USER_EMAIL="writeback-bot@example.invalid" \
+            GITHUB_OUTPUT="${output_file}" \
+            bash "${GITHUB_WORKSPACE}/kustomize/update-image/scripts/update_image.sh" | tee "${tmp_root}/run.log"
+          )
+
+          grep -q 'Updated image to ghcr.io/qtsone/forge:new and pushed to main' "${tmp_root}/run.log"
+          grep -q '^changed=true$' "${output_file}"
+          grep -q '^target-ref=ghcr.io/qtsone/forge:new$' "${output_file}"
+          actual_author="$(git -C "${tmp_root}/work" log -1 --pretty='%an <%ae>')"
+          [ "${actual_author}" = "writeback-bot <writeback-bot@example.invalid>" ] || { echo "Unexpected commit author: ${actual_author}" >&2; exit 1; }
+
+      - name: Execute no-op scenario (script)
+        run: |
+          set -euo pipefail
+
+          tmp_root="${RUNNER_TEMP}/kustomize-update-image-noop"
+          rm -rf "${tmp_root}"
+          mkdir -p "${tmp_root}/bin" "${tmp_root}/repo/overlay"
+
+          cat >"${tmp_root}/repo/overlay/kustomization.yaml" <<'YAML'
+          apiVersion: kustomize.config.k8s.io/v1beta1
+          kind: Kustomization
+          images:
+            - name: ghcr.io/qtsone/forge
+              newName: ghcr.io/qtsone/forge
+              newTag: stable
+          YAML
+
+          cat >"${tmp_root}/bin/kustomize" <<'SH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          cmd="${1:-}"
+          if [[ "${cmd}" == "edit" && "${2:-}" == "set" && "${3:-}" == "image" ]]; then
+            exit 0
+          fi
+          if [[ "${cmd}" == "build" ]]; then
+            target="${2:-.}"
+            test -f "${target}/kustomization.yaml"
+            exit 0
+          fi
+          exit 2
+          SH
+          chmod +x "${tmp_root}/bin/kustomize"
+
+          export PATH="${tmp_root}/bin:${PATH}"
+          export OVERLAY_PATH="${tmp_root}/repo/overlay"
+          export IMAGE_NAME="ghcr.io/qtsone/forge"
+          export TAG="stable"
+          export DRY_RUN="false"
+          export COMMIT="false"
+          output_file="${tmp_root}/outputs"
+          export GITHUB_OUTPUT="${output_file}"
+
+          bash kustomize/update-image/scripts/update_image.sh | tee "${tmp_root}/run.log"
+
+          grep -q 'No-op: kustomization already at target image ghcr.io/qtsone/forge:stable' "${tmp_root}/run.log"
+          grep -q '^changed=false$' "${output_file}"
+          grep -q '^target-ref=ghcr.io/qtsone/forge:stable$' "${output_file}"
+
+      - name: Prepare fake kustomize for composite skip-install test
+        run: |
+          set -euo pipefail
+          tmp_root="${RUNNER_TEMP}/kustomize-update-image-skip-install"
+          rm -rf "${tmp_root}"
+          mkdir -p "${tmp_root}/bin" "${tmp_root}/repo/overlay"
+
+          cat >"${tmp_root}/repo/overlay/kustomization.yaml" <<'YAML'
+          apiVersion: kustomize.config.k8s.io/v1beta1
+          kind: Kustomization
+          images:
+            - name: ghcr.io/qtsone/forge
+              newTag: old
+          YAML
+
+          cat >"${tmp_root}/bin/kustomize" <<'SH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          cmd="${1:-}"
+          if [[ "${cmd}" == "edit" && "${2:-}" == "set" && "${3:-}" == "image" ]]; then
+            spec="${4:?missing image spec}"
+            name="${spec%%=*}"
+            ref="${spec#*=}"
+            python3 - <<'PY' "${name}" "${ref}"
+          import pathlib
+          import re
+          import sys
+          name, ref = sys.argv[1], sys.argv[2]
+          p = pathlib.Path("kustomization.yaml")
+          s = p.read_text()
+          pat = re.compile(r'(^\s*-\s+name:\s*%s\s*\n)(\s+newTag:\s*[^\n]+|\s+newName:\s*[^\n]+\n\s+newTag:\s*[^\n]+|\s+newDigest:\s*[^\n]+)' % re.escape(name), re.M)
+          if not pat.search(s):
+            sys.exit("image not found")
+          if "@" in ref:
+            new = f"\\1  newName: {ref.split('@',1)[0]}\\n  newDigest: {ref.split('@',1)[1]}"
+          elif ":" in ref:
+            n, t = ref.rsplit(":", 1)
+            new = f"\\1  newName: {n}\\n  newTag: {t}"
+          else:
+            new = f"\\1  newName: {ref}"
+          p.write_text(pat.sub(new, s, count=1))
+          PY
+            exit 0
+          fi
+          if [[ "${cmd}" == "build" ]]; then
+            target="${2:-.}"
+            test -f "${target}/kustomization.yaml"
+            exit 0
+          fi
+          exit 2
+          SH
+          chmod +x "${tmp_root}/bin/kustomize"
+
+          echo "${tmp_root}/bin" >> "${GITHUB_PATH}"
+          echo "SKIP_INSTALL_OVERLAY_PATH=${tmp_root}/repo/overlay" >> "${GITHUB_ENV}"
+
+      - name: Execute skip-install scenario via local composite action
+        id: skip_install_scenario
+        uses: ./kustomize/update-image
+        with:
+          overlay-path: ${{ env.SKIP_INSTALL_OVERLAY_PATH }}
+          image-name: ghcr.io/qtsone/forge
+          tag: new
+          skip-install: true
+          dry-run: true
+
+      - name: Assert skip-install scenario outputs
+        run: |
+          set -euo pipefail
+          [ "${{ steps.skip_install_scenario.outputs.changed }}" = "true" ]
+          [ "${{ steps.skip_install_scenario.outputs.target-ref }}" = "ghcr.io/qtsone/forge:new" ]
+
+      - name: Execute push-conflict scenario (script)
+        run: |
+          set -euo pipefail
+
+          tmp_root="${RUNNER_TEMP}/kustomize-update-image-conflict"
+          rm -rf "${tmp_root}"
+          mkdir -p "${tmp_root}/bin" "${tmp_root}/seed/overlay" "${tmp_root}/remote.git" "${tmp_root}/work-a" "${tmp_root}/work-b"
+
+          git init --bare "${tmp_root}/remote.git"
+
+          cat >"${tmp_root}/seed/overlay/kustomization.yaml" <<'YAML'
+          apiVersion: kustomize.config.k8s.io/v1beta1
+          kind: Kustomization
+          images:
+            - name: ghcr.io/qtsone/forge
+              newTag: old
+          YAML
+
+          cat >"${tmp_root}/bin/kustomize" <<'SH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          cmd="${1:-}"
+          if [[ "${cmd}" == "edit" && "${2:-}" == "set" && "${3:-}" == "image" ]]; then
+            spec="${4:?missing image spec}"
+            name="${spec%%=*}"
+            ref="${spec#*=}"
+            python3 - <<'PY' "${name}" "${ref}"
+          import pathlib
+          import re
+          import sys
+          name, ref = sys.argv[1], sys.argv[2]
+          p = pathlib.Path("kustomization.yaml")
+          s = p.read_text()
+          pat = re.compile(r'(^\s*-\s+name:\s*%s\s*\n)(\s+newTag:\s*[^\n]+|\s+newName:\s*[^\n]+\n\s+newTag:\s*[^\n]+|\s+newDigest:\s*[^\n]+)' % re.escape(name), re.M)
+          if not pat.search(s):
+            sys.exit("image not found")
+          if "@" in ref:
+            new = f"\\1  newName: {ref.split('@',1)[0]}\\n  newDigest: {ref.split('@',1)[1]}"
+          elif ":" in ref:
+            n, t = ref.rsplit(":", 1)
+            new = f"\\1  newName: {n}\\n  newTag: {t}"
+          else:
+            new = f"\\1  newName: {ref}"
+          p.write_text(pat.sub(new, s, count=1))
+          PY
+            exit 0
+          fi
+          if [[ "${cmd}" == "build" ]]; then
+            target="${2:-.}"
+            test -f "${target}/kustomization.yaml"
+            exit 0
+          fi
+          exit 2
+          SH
+          chmod +x "${tmp_root}/bin/kustomize"
+          export PATH="${tmp_root}/bin:${PATH}"
+
+          git -C "${tmp_root}/work-a" init -b main
+          git -C "${tmp_root}/work-a" config user.name "github-actions[bot]"
+          git -C "${tmp_root}/work-a" config user.email "github-actions[bot]@users.noreply.github.com"
+          git -C "${tmp_root}/work-a" remote add origin "${tmp_root}/remote.git"
+          mkdir -p "${tmp_root}/work-a/overlay"
+          cp "${tmp_root}/seed/overlay/kustomization.yaml" "${tmp_root}/work-a/overlay/kustomization.yaml"
+          git -C "${tmp_root}/work-a" add overlay/kustomization.yaml
+          git -C "${tmp_root}/work-a" commit -m "init"
+          git -C "${tmp_root}/work-a" push -u origin main
+
+          git -C "${tmp_root}/work-b" clone "${tmp_root}/remote.git" .
+          git -C "${tmp_root}/work-b" config user.name "github-actions[bot]"
+          git -C "${tmp_root}/work-b" config user.email "github-actions[bot]@users.noreply.github.com"
+          perl -0pi -e 's/newTag: old/newTag: diverged/' "${tmp_root}/work-b/overlay/kustomization.yaml"
+          git -C "${tmp_root}/work-b" add overlay/kustomization.yaml
+          git -C "${tmp_root}/work-b" commit -m "diverge"
+          git -C "${tmp_root}/work-b" push origin main
+
+          set +e
+          (
+            cd "${tmp_root}/work-a"
+            OVERLAY_PATH="${tmp_root}/work-a/overlay" \
+            IMAGE_NAME="ghcr.io/qtsone/forge" \
+            TAG="new" \
+            COMMIT="true" \
+            DRY_RUN="false" \
+            TARGET_BRANCH="main" \
+            bash "${GITHUB_WORKSPACE}/kustomize/update-image/scripts/update_image.sh"
+          ) >"${tmp_root}/run.log" 2>&1
+          rc=$?
+          set -e
+
+          [ "${rc}" -ne 0 ]
+          grep -q 'push conflict while updating main; remote advanced, rebase and retry' "${tmp_root}/run.log"
+
+      - name: Run Task 1 shell tests
+        run: |
+          set -euo pipefail
+          bash tests/scripts/test_kustomize_installer.sh
+          bash tests/scripts/test_kustomize_update_image.sh

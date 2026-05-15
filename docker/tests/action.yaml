@@ -1,48 +1,166 @@
 name: "Docker Tests"
-description: "Standardized PR checks for Docker images"
+description: "PR preview readiness checks for Docker images"
+outputs:
+  image:
+    description: "Base image repository for the canonical tag"
+    value: ${{ steps.finalize.outputs.image }}
+  tag:
+    description: "Canonical immutable HEAD_SHA tag"
+    value: ${{ steps.finalize.outputs.tag }}
+  tags:
+    description: "Normalized newline-separated list of tags for this run"
+    value: ${{ steps.finalize.outputs.tags }}
+  digest:
+    description: "Preview image digest when pushed"
+    value: ${{ steps.finalize.outputs.digest }}
+  image-tag:
+    description: "Canonical image reference in image:tag format"
+    value: ${{ steps.finalize.outputs.image-tag }}
+  image-digest:
+    description: "Canonical image reference in image@digest format when digest exists"
+    value: ${{ steps.finalize.outputs.image-digest }}
 inputs:
   image-name:
     description: "Name of the Docker image"
     required: true
+  github-token:
+    description: "GitHub token"
+    required: true
+  registry:
+    description: "Container registry"
+    required: false
+    default: "ghcr.io"
   dockerfile-path:
     description: "Path to the Dockerfile"
     required: false
     default: "Dockerfile"
   context:
-    description: "Build Context"
+    description: "Build context"
     required: false
     default: "."
   build-args:
-    description: 'Adds support for Dockerfile build arguments. Ex: "BUILD_UID=1001"'
+    description: "Newline-separated Docker build arguments"
     required: false
     default: ""
-  tag-prefix:
-    description: "Add prefix for generated Docker Tag"
+  preview-push-enabled:
+    description: "Push preview image for eligible PRs"
+    required: false
+    default: "true"
+  ready-label-enabled:
+    description: "Manage ready label lifecycle on eligible PRs"
+    required: false
+    default: "true"
+  ready-label-name:
+    description: "Ready label name"
+    required: false
+    default: "ready"
+  pr-number:
+    description: "PR number override (optional)"
     required: false
     default: ""
-  tag-suffix:
-    description: "Add a suffix for generated Docker Tag"
+  pr-head-sha:
+    description: "PR head SHA override (optional)"
     required: false
     default: ""
-  trivy-severity:
-    description: "Default failure severity for Trivy checks"
+  scan-required:
+    description: "Fail readiness when Trivy scan fails"
+    required: false
+    default: "true"
+  scan-severity-threshold:
+    description: "Trivy severity threshold"
     required: false
     default: "CRITICAL"
-  github-token:
-    description: "GitHub token"
-    required: true
-  registry:
-    description: "GitHub Packages registry"
+  pr-comment-enabled:
+    description: "Post PR comment summary"
     required: false
-    default: "ghcr.io"
+    default: "false"
 
 runs:
   using: "composite"
   steps:
-    # Note: Checkout should be done by the calling workflow
+    - name: Derive PR preview context
+      id: derive-context
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        pr_number="${{ inputs.pr-number }}"
+        if [ -z "${pr_number}" ]; then
+          pr_number="${{ github.event.pull_request.number || '' }}"
+        fi
+
+        pr_head_sha="${{ inputs.pr-head-sha }}"
+        if [ -z "${pr_head_sha}" ]; then
+          pr_head_sha="${{ github.event.pull_request.head.sha || github.sha }}"
+        fi
+
+        same_repo_pr="false"
+        if [ -n "${{ github.event.pull_request.number || '' }}" ] && [ "${{ github.event.pull_request.head.repo.full_name || '' }}" = "${{ github.repository }}" ]; then
+          same_repo_pr="true"
+        fi
+
+        eligible_for_preview="false"
+        if [ -n "${pr_number}" ] && [ "${same_repo_pr}" = "true" ]; then
+          eligible_for_preview="true"
+        fi
+
+        image="${{ inputs.registry }}/${{ inputs.image-name }}"
+        tag="${pr_head_sha}"
+        image_tag="${image}:${tag}"
+
+        {
+          echo "pr_number=${pr_number}"
+          echo "pr_head_sha=${pr_head_sha}"
+          echo "same_repo_pr=${same_repo_pr}"
+          echo "eligible_for_preview=${eligible_for_preview}"
+          echo "image=${image}"
+          echo "tag=${tag}"
+          echo "image_tag=${image_tag}"
+        } >> "${GITHUB_OUTPUT}"
+
+    - name: Initialize summary
+      if: always()
+      shell: bash
+      run: |
+        {
+          echo "## Docker preview readiness"
+          echo "- Image: \`${{ steps.derive-context.outputs.image_tag }}\`"
+          echo "- PR number: \`${{ steps.derive-context.outputs.pr_number || 'n/a' }}\`"
+          echo "- Same-repo PR eligibility: \`${{ steps.derive-context.outputs.eligible_for_preview }}\`"
+        } >> "${GITHUB_STEP_SUMMARY}"
+
+    - name: Remove ready label at start
+      id: remove-ready-label
+      if: ${{ steps.derive-context.outputs.eligible_for_preview == 'true' && inputs.ready-label-enabled == 'true' }}
+      uses: actions/github-script@v7
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          const owner = context.repo.owner
+          const repo = context.repo.repo
+          const issue_number = Number("${{ steps.derive-context.outputs.pr_number }}")
+          const name = "${{ inputs.ready-label-name }}"
+          try {
+            await github.rest.issues.removeLabel({ owner, repo, issue_number, name })
+            core.info(`Removed ready label '${name}' at start`)
+          } catch (error) {
+            if (error.status !== 404) {
+              throw error
+            }
+            core.info(`Ready label '${name}' was already absent`)
+          }
+
+    - name: Mark fork PR skip
+      if: ${{ steps.derive-context.outputs.eligible_for_preview != 'true' }}
+      shell: bash
+      run: |
+        {
+          echo "- fork PR or non-PR context detected: preview publish and label lifecycle skipped by default."
+        } >> "${GITHUB_STEP_SUMMARY}"
+
     - name: Run Hadolint GitHub Action
-      uses: hadolint/hadolint-action@v3.3.0
       id: hadolint
+      uses: hadolint/hadolint-action@v3.3.0
       with:
         dockerfile: ${{ inputs.dockerfile-path }}
         output-file: hadolint-results.txt
@@ -51,79 +169,193 @@ runs:
     - name: Setup Docker buildx
       uses: docker/setup-buildx-action@v3
 
-    - name: Login to GitHub Container Registry
+    - name: Login to container registry
+      if: ${{ steps.derive-context.outputs.eligible_for_preview == 'true' && inputs.preview-push-enabled == 'true' }}
       uses: docker/login-action@v3
       with:
         registry: ${{ inputs.registry }}
         username: ${{ github.actor }}
         password: ${{ inputs.github-token }}
 
-    - name: Build Docker Image
-      id: build-and-push
+    - name: Build Docker image
+      id: build-image
       uses: docker/build-push-action@v6
       with:
         context: ${{ inputs.context }}
         file: ${{ inputs.dockerfile-path }}
         push: false
-        tags: ${{ inputs.registry }}/${{ inputs.image-name }}:${{ inputs.tag-prefix }}${{ github.event.pull_request.number || github.sha }}${{ inputs.tag-suffix }}
-        cache-from: type=registry,ref=${{ inputs.registry }}/${{ inputs.image-name }}:cache
-        cache-to: type=registry,mode=max,ref=${{ inputs.registry }}/${{ inputs.image-name }}:cache
         load: true
+        tags: ${{ steps.derive-context.outputs.image_tag }}
         build-args: |
           ${{ inputs.build-args }}
 
     - name: Run Trivy vulnerability scanner
-      uses: aquasecurity/trivy-action@master
       id: trivy
+      uses: aquasecurity/trivy-action@0.33.1
       with:
         exit-code: "1"
         ignore-unfixed: true
         vuln-type: "os,library"
-        severity: ${{ inputs.trivy-severity }}
-        image-ref: ${{ inputs.registry }}/${{ inputs.image-name }}:${{ inputs.tag-prefix }}${{ github.event.pull_request.number || github.sha }}${{ inputs.tag-suffix }}
+        severity: ${{ inputs.scan-severity-threshold }}
+        image-ref: ${{ steps.derive-context.outputs.image_tag }}
         format: "table"
         output: "trivy-results.table"
       continue-on-error: true
 
-    - name: Prepare Comment
+    - name: Check live PR head SHA
+      id: stale-sha-guard
+      if: ${{ steps.derive-context.outputs.eligible_for_preview == 'true' }}
+      uses: actions/github-script@v7
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          const owner = context.repo.owner
+          const repo = context.repo.repo
+          const pull_number = Number("${{ steps.derive-context.outputs.pr_number }}")
+          const expectedSha = "${{ steps.derive-context.outputs.pr_head_sha }}"
+
+          const response = await github.rest.pulls.get({ owner, repo, pull_number })
+          const liveSha = response.data.head.sha
+          const stale = liveSha !== expectedSha
+
+          core.setOutput("live_sha", liveSha)
+          core.setOutput("stale_pr_head", stale ? "true" : "false")
+          if (stale) {
+            core.warning(`stale_pr_head: expected ${expectedSha}, got ${liveSha}`)
+          }
+
+    - name: Push immutable preview image
+      id: preview-push
+      if: ${{ steps.derive-context.outputs.eligible_for_preview == 'true' && inputs.preview-push-enabled == 'true' && steps.build-image.outcome == 'success' && (inputs.scan-required != 'true' || steps.trivy.outcome == 'success') && (steps.stale-sha-guard.outputs.stale_pr_head != 'true') }}
+      uses: docker/build-push-action@v6
+      with:
+        context: ${{ inputs.context }}
+        file: ${{ inputs.dockerfile-path }}
+        push: true
+        tags: ${{ steps.derive-context.outputs.image_tag }}
+        build-args: |
+          ${{ inputs.build-args }}
+
+    - name: Finalize outputs and readiness gate
+      id: finalize
+      if: always()
+      shell: bash
+      env:
+        ELIGIBLE: ${{ steps.derive-context.outputs.eligible_for_preview }}
+        PREVIEW_PUSH_ENABLED: ${{ inputs.preview-push-enabled }}
+        READY_LABEL_ENABLED: ${{ inputs.ready-label-enabled }}
+        SCAN_REQUIRED: ${{ inputs.scan-required }}
+        BUILD_OUTCOME: ${{ steps.build-image.outcome }}
+        TRIVY_OUTCOME: ${{ steps.trivy.outcome }}
+        PUSH_OUTCOME: ${{ steps.preview-push.outcome }}
+        STALE_PR_HEAD: ${{ steps.stale-sha-guard.outputs.stale_pr_head }}
+        IMAGE: ${{ steps.derive-context.outputs.image }}
+        TAG: ${{ steps.derive-context.outputs.tag }}
+        IMAGE_TAG: ${{ steps.derive-context.outputs.image_tag }}
+        PUSH_DIGEST: ${{ steps.preview-push.outputs.digest }}
+      run: |
+        set -euo pipefail
+
+        scan_required="${SCAN_REQUIRED}"
+        scan_pass="true"
+        if [ "${TRIVY_OUTCOME}" != "success" ]; then
+          scan_pass="false"
+        fi
+
+        stale_pr_head="${STALE_PR_HEAD}"
+        if [ -z "${stale_pr_head}" ]; then
+          stale_pr_head="false"
+        fi
+
+        build_pass="false"
+        push_pass="false"
+
+        if [ "${BUILD_OUTCOME}" = "success" ]; then
+          build_pass="true"
+        fi
+
+        if [ "${PREVIEW_PUSH_ENABLED}" = "true" ]; then
+          if [ "${PUSH_OUTCOME}" = "success" ]; then
+            push_pass="true"
+          fi
+        else
+          push_pass="true"
+        fi
+
+        ready_allowed="false"
+        if [ "${ELIGIBLE}" = "true" ] && [ "${READY_LABEL_ENABLED}" = "true" ] && [ "${build_pass}" = "true" ] && [ "${push_pass}" = "true" ] && [ "${stale_pr_head}" != "true" ]; then
+          if [ "${scan_required}" = "true" ]; then
+            if [ "${scan_pass}" = "true" ]; then
+              ready_allowed="true"
+            fi
+          else
+            ready_allowed="true"
+          fi
+        fi
+
+        tags="${IMAGE_TAG}"
+        digest="${PUSH_DIGEST}"
+        image_digest=""
+        if [ -n "${digest}" ]; then
+          image_digest="${IMAGE}@${digest}"
+        fi
+
+        {
+          echo "image=${IMAGE}"
+          echo "tag=${TAG}"
+          echo "image-tag=${IMAGE_TAG}"
+          echo "digest=${digest}"
+          echo "image-digest=${image_digest}"
+          echo "ready_allowed=${ready_allowed}"
+          echo "stale_pr_head=${stale_pr_head}"
+          echo "tags<<EOF"
+          printf '%s\n' "${tags}"
+          echo "EOF"
+        } >> "${GITHUB_OUTPUT}"
+
+        {
+          echo "- Build outcome: ${BUILD_OUTCOME}"
+          echo "- Scan outcome: ${TRIVY_OUTCOME} (scan_required=${scan_required})"
+          echo "- Push outcome: ${PUSH_OUTCOME:-skipped} (preview_push_enabled=${PREVIEW_PUSH_ENABLED})"
+          echo "- stale_pr_head: ${stale_pr_head}"
+          echo "- Ready gate result: ${ready_allowed}"
+        } >> "${GITHUB_STEP_SUMMARY}"
+
+    - name: Add ready label after successful readiness gate
+      id: add-ready-label
+      if: ${{ steps.finalize.outputs.ready_allowed == 'true' }}
+      uses: actions/github-script@v7
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          const owner = context.repo.owner
+          const repo = context.repo.repo
+          const issue_number = Number("${{ steps.derive-context.outputs.pr_number }}")
+          const labels = ["${{ inputs.ready-label-name }}"]
+          await github.rest.issues.addLabels({ owner, repo, issue_number, labels })
+
+    - name: Prepare optional PR comment
       id: comment
       if: always()
       shell: bash
       run: |
-        echo "## PR Checks" >> checks.txt
-        echo "<details>" >> checks.txt
-        echo "<summary><h3>Hadolint</h3>: <code>${{ steps.hadolint.outcome }}</code></summary>" >> checks.txt
-        echo "" >> checks.txt
-        echo "\`\`\`diff" >> checks.txt
-        if [ -f "hadolint-results.txt" ]; then
-          cat hadolint-results.txt >> checks.txt
-        else
-          echo "No Hadolint results available" >> checks.txt
-        fi
-        echo "\`\`\`" >> checks.txt
-        echo "</details>" >> checks.txt
-        echo "<details>" >> checks.txt
-        echo "<summary><h3>Trivy</h3>: <code>${{ steps.trivy.outcome }}</code></summary>" >> checks.txt
-        echo "" >> checks.txt
-        echo "\`\`\`diff" >> checks.txt
-        if [ -f "trivy-results.table" ]; then
-          cat trivy-results.table >> checks.txt
-        else
-          echo "No Trivy results available" >> checks.txt
-        fi
-        echo "\`\`\`" >> checks.txt
-        echo "</details>" >> checks.txt
+        {
+          echo "## Docker Preview Readiness"
+          echo "- image-tag: \`${{ steps.finalize.outputs.image-tag }}\`"
+          echo "- digest: \`${{ steps.finalize.outputs.digest || 'n/a' }}\`"
+          echo "- ready gate: \`${{ steps.finalize.outputs.ready_allowed }}\`"
+          echo "- stale_pr_head: \`${{ steps.finalize.outputs.stale_pr_head }}\`"
+        } > checks.txt
 
-    - name: Comment failure on pre-commit checks
-      if: always()
+    - name: Comment readiness summary on PR
+      if: ${{ inputs.pr-comment-enabled == 'true' }}
       uses: mshick/add-pr-comment@v2
       with:
-        message-id: docker-tests
+        message-id: docker-tests-preview-readiness
         refresh-message-position: true
-        message-path: |
-          checks.txt
+        message-path: checks.txt
 
-    - name: Logout from GitHub Container Registry
-      if: always()
+    - name: Logout from container registry
+      if: ${{ always() && steps.derive-context.outputs.eligible_for_preview == 'true' && inputs.preview-push-enabled == 'true' }}
       run: docker logout ${{ inputs.registry }}
       shell: bash
