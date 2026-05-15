@@ -1,3 +1,10 @@
+## [1.3.1](https://github.com/qtsone/actions/compare/v1.3.0...v1.3.1) (2026-05-15)
+
+
+### Bug Fixes
+
+* update Trivy action version to 0.36.0 for improved vulnerability scanning ([16a8451](https://github.com/qtsone/actions/commit/16a845170e4b9d2280b5ce6eba9351ef30a7574a))
+
 # [1.3.0](https://github.com/qtsone/actions/compare/v1.2.0...v1.3.0) (2026-05-15)
 
 
