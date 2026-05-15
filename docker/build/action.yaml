@@ -1,5 +1,24 @@
 name: "Build"
 description: "Build image and push to GitHub Packages"
+outputs:
+  image:
+    description: "Base image repository for the canonical tag"
+    value: ${{ steps.derive-outputs.outputs.image }}
+  tag:
+    description: "Canonical first tag from normalized tags"
+    value: ${{ steps.derive-outputs.outputs.tag }}
+  tags:
+    description: "Normalized newline-separated list of pushed tags"
+    value: ${{ steps.derive-outputs.outputs.tags }}
+  digest:
+    description: "Image digest from docker/build-push-action"
+    value: ${{ steps.derive-outputs.outputs.digest }}
+  image-tag:
+    description: "Canonical image reference in image:tag format"
+    value: ${{ steps.derive-outputs.outputs.image-tag }}
+  image-digest:
+    description: "Canonical image reference in image@digest format when digest exists"
+    value: ${{ steps.derive-outputs.outputs.image-digest }}
 inputs:
   image-name:
     description: "Name of the Docker image"
@@ -96,6 +115,52 @@ runs:
         cache-to: type=registry,mode=max,ref=${{ inputs.registry }}/${{ inputs.image-name }}:cache
         build-args: |
           ${{ inputs.build-args }}
+
+    - name: Derive action outputs
+      id: derive-outputs
+      shell: bash
+      env:
+        INPUT_TAGS: ${{ inputs.tags }}
+        META_TAGS: ${{ steps.meta.outputs.tags }}
+        BUILD_DIGEST: ${{ steps.build-and-push.outputs.digest }}
+      run: |
+        set -euo pipefail
+
+        normalized_tags="${INPUT_TAGS}"
+        if [ -z "${normalized_tags}" ]; then
+          normalized_tags="${META_TAGS}"
+        fi
+
+        normalized_tags="$(printf '%s\n' "${normalized_tags}" | sed '/^\s*$/d')"
+        first_tag="$(printf '%s\n' "${normalized_tags}" | sed -n '1p')"
+
+        image=""
+        if [ -n "${first_tag}" ]; then
+          image="${first_tag%:*}"
+        fi
+
+        digest="${BUILD_DIGEST}"
+        image_tag=""
+        image_digest=""
+
+        if [ -n "${first_tag}" ]; then
+          image_tag="${first_tag}"
+        fi
+
+        if [ -n "${image}" ] && [ -n "${digest}" ]; then
+          image_digest="${image}@${digest}"
+        fi
+
+        {
+          echo "tags<<EOF"
+          printf '%s\n' "${normalized_tags}"
+          echo "EOF"
+          echo "tag=${first_tag}"
+          echo "image=${image}"
+          echo "digest=${digest}"
+          echo "image-tag=${image_tag}"
+          echo "image-digest=${image_digest}"
+        } >> "${GITHUB_OUTPUT}"
 
     - name: Logout from GitHub Container Registry
       if: always()
