@@ -1,3 +1,17 @@
+# [1.3.0](https://github.com/qtsone/actions/compare/v1.2.0...v1.3.0) (2026-05-15)
+
+
+### Bug Fixes
+
+* improve error handling in update_image script and enhance test coverage ([732e28e](https://github.com/qtsone/actions/commit/732e28e382d456e456b617319f25beab9aa72ada))
+* specify branch when cloning remote repository in test workflow ([b44fac0](https://github.com/qtsone/actions/commit/b44fac04b204986c7969a8a2b529dbff848a98e3))
+
+
+### Features
+
+* allow specifying additional custom tags for Docker images ([c1a2e64](https://github.com/qtsone/actions/commit/c1a2e64e9181921e104cf9b5a6d43b20c8138503))
+* **kustomize:** introduce reusable action for updating image references in kustomization overlays ([eba5034](https://github.com/qtsone/actions/commit/eba503463a3dfb95554d72d146d295fe653ffe37))
+
 # [1.2.0](https://github.com/qtsone/actions/compare/v1.1.0...v1.2.0) (2026-01-20)
 
 
