@@ -432,7 +432,7 @@ jobs:
           git -C "${tmp_root}/work-a" commit -m "init"
           git -C "${tmp_root}/work-a" push -u origin main
 
-          git -C "${tmp_root}/work-b" clone "${tmp_root}/remote.git" .
+          git -C "${tmp_root}/work-b" clone --branch main "${tmp_root}/remote.git" .
           git -C "${tmp_root}/work-b" config user.name "github-actions[bot]"
           git -C "${tmp_root}/work-b" config user.email "github-actions[bot]@users.noreply.github.com"
           perl -0pi -e 's/newTag: old/newTag: diverged/' "${tmp_root}/work-b/overlay/kustomization.yaml"
