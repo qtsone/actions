@@ -1,3 +1,10 @@
+## [1.3.3](https://github.com/qtsone/actions/compare/v1.3.2...v1.3.3) (2026-05-16)
+
+
+### Bug Fixes
+
+* update context step references and enable PR comment summary ([cd8f13c](https://github.com/qtsone/actions/commit/cd8f13c05f548fc66462bf622da1136e8add4ac4))
+
 ## [1.3.2](https://github.com/qtsone/actions/compare/v1.3.1...v1.3.2) (2026-05-15)
 
 
