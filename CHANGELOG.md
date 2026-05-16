@@ -1,3 +1,10 @@
+## [1.3.5](https://github.com/qtsone/actions/compare/v1.3.4...v1.3.5) (2026-05-16)
+
+
+### Bug Fixes
+
+* update Docker tests action to enable PR comment diagnostics and adjust scan requirements ([dc2091b](https://github.com/qtsone/actions/commit/dc2091b69f4f7b3c5f91e06941a6767567f65c88))
+
 ## [1.3.4](https://github.com/qtsone/actions/compare/v1.3.3...v1.3.4) (2026-05-16)
 
 
