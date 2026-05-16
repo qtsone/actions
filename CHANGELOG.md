@@ -1,3 +1,10 @@
+## [1.3.4](https://github.com/qtsone/actions/compare/v1.3.3...v1.3.4) (2026-05-16)
+
+
+### Bug Fixes
+
+* update add-pr-comment action to version 3 for improved functionality ([4b0d513](https://github.com/qtsone/actions/commit/4b0d5135c04594290f1f5573551e245f1cd6e9ba))
+
 ## [1.3.3](https://github.com/qtsone/actions/compare/v1.3.2...v1.3.3) (2026-05-16)
 
 
