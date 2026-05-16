@@ -65,7 +65,7 @@ inputs:
   scan-required:
     description: "Fail readiness when Trivy scan fails"
     required: false
-    default: "true"
+    default: "false"
   scan-severity-threshold:
     description: "Trivy severity threshold"
     required: false
@@ -165,6 +165,7 @@ runs:
         dockerfile: ${{ inputs.dockerfile-path }}
         output-file: hadolint-results.txt
         format: tty
+      continue-on-error: true
 
     - name: Setup Docker buildx
       uses: docker/setup-buildx-action@v3
@@ -247,6 +248,7 @@ runs:
         SCAN_REQUIRED: ${{ inputs.scan-required }}
         BUILD_OUTCOME: ${{ steps.build-image.outcome }}
         TRIVY_OUTCOME: ${{ steps.trivy.outcome }}
+        HADOLINT_OUTCOME: ${{ steps.hadolint.outcome }}
         PUSH_OUTCOME: ${{ steps.preview-push.outcome }}
         STALE_PR_HEAD: ${{ steps.stale-sha-guard.outputs.stale_pr_head }}
         IMAGE: ${{ steps.context.outputs.image }}
@@ -315,6 +317,7 @@ runs:
 
         {
           echo "- Build outcome: ${BUILD_OUTCOME}"
+          echo "- Hadolint outcome: ${HADOLINT_OUTCOME}"
           echo "- Scan outcome: ${TRIVY_OUTCOME} (scan_required=${scan_required})"
           echo "- Push outcome: ${PUSH_OUTCOME:-skipped} (preview_push_enabled=${PREVIEW_PUSH_ENABLED})"
           echo "- stale_pr_head: ${stale_pr_head}"
@@ -338,22 +341,140 @@ runs:
       id: comment
       if: always()
       shell: bash
+      env:
+        READY_ALLOWED: ${{ steps.finalize.outputs.ready_allowed }}
+        ELIGIBLE: ${{ steps.context.outputs.eligible_for_preview }}
+        SCAN_REQUIRED: ${{ inputs.scan-required }}
+        TRIVY_OUTCOME: ${{ steps.trivy.outcome }}
+        HADOLINT_OUTCOME: ${{ steps.hadolint.outcome }}
+        PUSH_OUTCOME: ${{ steps.preview-push.outcome }}
+        STALE_PR_HEAD: ${{ steps.finalize.outputs.stale_pr_head }}
+        IMAGE_TAG: ${{ steps.finalize.outputs.image-tag }}
+        DIGEST: ${{ steps.finalize.outputs.digest }}
       run: |
+        set -euo pipefail
+
+        trivy_excerpt="no report available"
+        if [ -s trivy-results.table ]; then
+          trivy_excerpt=$(sed -n '1,20p' trivy-results.table)
+        fi
+
+        hadolint_excerpt="no report available"
+        if [ -s hadolint-results.txt ]; then
+          hadolint_excerpt=$(sed -n '1,20p' hadolint-results.txt)
+        fi
+
+        push_state="${PUSH_OUTCOME:-skipped}"
+        if [ -z "${push_state}" ]; then
+          push_state="skipped"
+        fi
+
+        reasons=()
+        if [ "${ELIGIBLE}" != "true" ]; then
+          reasons+=("Not an eligible same-repo PR preview context")
+        fi
+        if [ "${STALE_PR_HEAD}" = "true" ]; then
+          reasons+=("stale PR head detected")
+        fi
+        if [ "${PUSH_OUTCOME:-}" != "success" ]; then
+          reasons+=("preview push outcome is ${push_state}")
+        fi
+        if [ "${SCAN_REQUIRED}" = "true" ] && [ "${TRIVY_OUTCOME}" != "success" ]; then
+          reasons+=("Trivy scan is required and outcome is ${TRIVY_OUTCOME}")
+        fi
+
+        warnings=()
+        if [ "${TRIVY_OUTCOME}" != "success" ] && [ "${SCAN_REQUIRED}" != "true" ]; then
+          warnings+=("Trivy reported findings or scan failure, but readiness is warning-only because scan-required=false")
+        fi
+        if [ "${HADOLINT_OUTCOME}" != "success" ]; then
+          warnings+=("Hadolint reported findings (warning-only)")
+        fi
+
         {
-          echo "## Docker Preview Readiness"
-          echo "- image-tag: \`${{ steps.finalize.outputs.image-tag }}\`"
-          echo "- digest: \`${{ steps.finalize.outputs.digest || 'n/a' }}\`"
-          echo "- ready gate: \`${{ steps.finalize.outputs.ready_allowed }}\`"
-          echo "- stale_pr_head: \`${{ steps.finalize.outputs.stale_pr_head }}\`"
+          echo "## Readiness"
+          echo "- ready: \`${READY_ALLOWED}\`"
+          echo "- image-tag: \`${IMAGE_TAG}\`"
+          echo "- digest: \`${DIGEST:-n/a}\`"
+
+          if [ "${READY_ALLOWED}" != "true" ]; then
+            echo
+            echo "### Not ready because"
+            if [ ${#reasons[@]} -eq 0 ]; then
+              echo "- Not ready because one or more readiness gates failed"
+            else
+              for reason in "${reasons[@]}"; do
+                echo "- ${reason}"
+              done
+            fi
+          fi
+
+          echo
+          echo "## Warnings"
+          if [ ${#warnings[@]} -eq 0 ]; then
+            echo "- none"
+          else
+            for warning in "${warnings[@]}"; do
+              echo "- warning: ${warning}"
+            done
+          fi
+
+          echo
+          echo "## Trivy outcome"
+          echo "- outcome: \`${TRIVY_OUTCOME}\`"
+          echo "- scan-required: \`${SCAN_REQUIRED}\`"
+          echo '```text'
+          printf '%s\n' "${trivy_excerpt}"
+          echo '```'
+
+          echo
+          echo "## Hadolint outcome"
+          echo "- outcome: \`${HADOLINT_OUTCOME}\`"
+          echo '```text'
+          printf '%s\n' "${hadolint_excerpt}"
+          echo '```'
+
+          echo
+          echo "## Push outcome"
+          echo "- outcome: \`${push_state}\`"
+
+          echo
+          echo "## Stale PR head"
+          echo "- stale_pr_head: \`${STALE_PR_HEAD}\`"
         } > checks.txt
 
     - name: Comment readiness summary on PR
-      if: ${{ inputs.pr-comment-enabled == 'true' }}
-      uses: mshick/add-pr-comment@v3
-      with:
-        message-id: docker-tests-preview-readiness
-        refresh-message-position: true
-        message-path: checks.txt
+      if: ${{ inputs.pr-comment-enabled == 'true' && steps.context.outputs.eligible_for_preview == 'true' }}
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        GH_REPO: ${{ github.repository }}
+        PR_NUMBER: ${{ steps.context.outputs.pr_number }}
+      run: |
+        set -euo pipefail
+
+        marker='<!-- docker-tests-preview-readiness -->'
+        body_file="$(mktemp)"
+        cleanup() {
+          rm -f "${body_file}"
+        }
+        trap cleanup EXIT
+
+        {
+          echo "${marker}"
+          cat checks.txt
+        } > "${body_file}"
+
+        comment_id="$(gh api "repos/${GH_REPO}/issues/${PR_NUMBER}/comments" --paginate --jq "map(select(.body | contains(\"${marker}\")))[0].id // \"\"")"
+
+        if [ -n "${comment_id}" ]; then
+          gh api --method PATCH "repos/${GH_REPO}/issues/comments/${comment_id}" --field "body=@${body_file}" >/dev/null
+        else
+          gh pr comment "${PR_NUMBER}" --repo "${GH_REPO}" --body-file "${body_file}" >/dev/null
+        fi
+
+        rm -f "${body_file}"
+        trap - EXIT
 
     - name: Logout from container registry
       if: ${{ always() && steps.context.outputs.eligible_for_preview == 'true' && inputs.preview-push-enabled == 'true' }}

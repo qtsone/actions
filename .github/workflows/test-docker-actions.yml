@@ -63,9 +63,9 @@ jobs:
             [preview-push-enabled]="true"
             [ready-label-enabled]="true"
             [ready-label-name]="ready"
-            [scan-required]="true"
+            [scan-required]="false"
             [scan-severity-threshold]="CRITICAL"
-            [pr-comment-enabled]="false"
+            [pr-comment-enabled]="true"
           )
 
           for key in "${!required_defaults[@]}"; do
@@ -131,13 +131,13 @@ jobs:
         run: |
           set -euo pipefail
 
-          derive_run=$(yq -r '.runs.steps[] | select(.id == "derive-context") | .run // ""' docker/tests/action.yaml)
+          derive_run=$(yq -r '.runs.steps[] | select(.id == "context") | .run // ""' docker/tests/action.yaml)
           finalize_run=$(yq -r '.runs.steps[] | select(.id == "finalize") | .run // ""' docker/tests/action.yaml)
           preview_if=$(yq -r '.runs.steps[] | select(.id == "preview-push") | .if // ""' docker/tests/action.yaml)
 
           printf '%s\n' "${derive_run}" | grep -q 'eligible_for_preview="true"'
           printf '%s\n' "${derive_run}" | grep -q 'if \[ -n "${pr_number}" \] && \[ "${same_repo_pr}" = "true" \]'
-          printf '%s\n' "${preview_if}" | grep -q "steps.derive-context.outputs.eligible_for_preview == 'true'"
+          printf '%s\n' "${preview_if}" | grep -q "steps.context.outputs.eligible_for_preview == 'true'"
           printf '%s\n' "${preview_if}" | grep -q "inputs.preview-push-enabled == 'true'"
           printf '%s\n' "${preview_if}" | grep -q "steps.build-image.outcome == 'success'"
           printf '%s\n' "${preview_if}" | grep -q "steps.stale-sha-guard.outputs.stale_pr_head != 'true'"
@@ -150,8 +150,75 @@ jobs:
           mark_fork_if=$(yq -r '.runs.steps[] | select(.name == "Mark fork PR skip") | .if // ""' docker/tests/action.yaml)
           mark_fork_run=$(yq -r '.runs.steps[] | select(.name == "Mark fork PR skip") | .run // ""' docker/tests/action.yaml)
 
-          printf '%s\n' "${mark_fork_if}" | grep -q "steps.derive-context.outputs.eligible_for_preview != 'true'"
+          printf '%s\n' "${mark_fork_if}" | grep -q "steps.context.outputs.eligible_for_preview != 'true'"
           printf '%s\n' "${mark_fork_run}" | grep -q 'fork PR or non-PR context detected: preview publish and label lifecycle skipped by default.'
+
+      - name: Verify PR comment publishing uses gh CLI
+        run: |
+          set -euo pipefail
+
+          comment_uses=$(yq -r '.runs.steps[] | select(.name == "Comment readiness summary on PR") | .uses // ""' docker/tests/action.yaml)
+          comment_shell=$(yq -r '.runs.steps[] | select(.name == "Comment readiness summary on PR") | .shell // ""' docker/tests/action.yaml)
+          comment_run=$(yq -r '.runs.steps[] | select(.name == "Comment readiness summary on PR") | .run // ""' docker/tests/action.yaml)
+
+          if [ -n "${comment_uses}" ]; then
+            echo "PR comment publish step should use gh CLI shell, found uses=${comment_uses}" >&2
+            exit 1
+          fi
+
+          printf '%s\n' "${comment_shell}" | grep -q '^bash$'
+          printf '%s\n' "${comment_run}" | grep -q 'gh pr comment'
+
+          if yq -r '.runs.steps[]?.uses // ""' docker/tests/action.yaml | grep -q 'mshick/add-pr-comment@v3'; then
+            echo "mshick/add-pr-comment@v3 should not be used for PR diagnostics" >&2
+            exit 1
+          fi
+
+      - name: Verify PR diagnostics include readiness and scan/lint outcomes
+        run: |
+          set -euo pipefail
+
+          comment_run=$(yq -r '.runs.steps[] | select(.id == "comment") | .run // ""' docker/tests/action.yaml)
+
+          if printf '%s\n' "${comment_run}" | grep -q 'Docker Preview Readiness'; then
+            echo "Legacy comment title 'Docker Preview Readiness' should not be required" >&2
+            exit 1
+          fi
+
+          printf '%s\n' "${comment_run}" | grep -q '## Readiness'
+          printf '%s\n' "${comment_run}" | grep -q '## Warnings'
+          printf '%s\n' "${comment_run}" | grep -q '## Trivy outcome'
+          printf '%s\n' "${comment_run}" | grep -q '## Hadolint outcome'
+          printf '%s\n' "${comment_run}" | grep -q '## Push outcome'
+          printf '%s\n' "${comment_run}" | grep -q '## Stale PR head'
+          printf '%s\n' "${comment_run}" | grep -q 'Not ready because'
+          printf '%s\n' "${comment_run}" | grep -q 'no report available'
+          printf '%s\n' "${comment_run}" | grep -q 'warning'
+
+      - name: Verify diagnostics use non-empty report checks
+        run: |
+          set -euo pipefail
+
+          comment_run=$(yq -r '.runs.steps[] | select(.id == "comment") | .run // ""' docker/tests/action.yaml)
+
+          printf '%s\n' "${comment_run}" | grep -q '\[ -s trivy-results.table \]'
+          printf '%s\n' "${comment_run}" | grep -q '\[ -s hadolint-results.txt \]'
+
+      - name: Verify gh upsert does not swallow comment-list failures
+        run: |
+          set -euo pipefail
+
+          publish_run=$(yq -r '.runs.steps[] | select(.name == "Comment readiness summary on PR") | .run // ""' docker/tests/action.yaml)
+
+          if printf '%s\n' "${publish_run}" | grep -q '|| true'; then
+            echo "gh comment list failure must not be swallowed with || true" >&2
+            exit 1
+          fi
+
+          printf '%s\n' "${publish_run}" | grep -q 'gh api "repos/\${GH_REPO}/issues/\${PR_NUMBER}/comments"'
+          printf '%s\n' "${publish_run}" | grep -q 'if \[ -n "\${comment_id}" \]; then'
+          printf '%s\n' "${publish_run}" | grep -q 'gh pr comment'
+          printf '%s\n' "${publish_run}" | grep -q 'rm -f "\${body_file}"'
 
       - name: Verify scan-required false permits push/readiness despite scan failure
         run: |
@@ -223,7 +290,9 @@ jobs:
 
           printf '%s\n' "${finalize_run}" | grep -q 'echo "tag=${TAG}"'
           printf '%s\n' "${finalize_run}" | grep -q 'echo "tags<<EOF"'
-          printf '%s\n' "${comment_run}" | grep -q 'Docker Preview Readiness'
+          for section in '## Readiness' '## Warnings' '## Trivy outcome' '## Hadolint outcome' '## Push outcome' '## Stale PR head'; do
+            printf '%s\n' "${comment_run}" | grep -q "${section}"
+          done
           if yq -r '.runs.steps[]?.with.tags // ""' docker/tests/action.yaml | grep -q 'pr-'; then
             echo "Mutable pr-<number> tag detected in docker/tests action" >&2
             exit 1

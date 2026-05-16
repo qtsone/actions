@@ -5,7 +5,7 @@ Reusable PR-preview readiness action for Docker workloads.
 ## What it does
 
 - Builds the Docker image with an immutable `HEAD_SHA` tag.
-- Runs Hadolint and Trivy.
+- Runs Hadolint and Trivy with warning-first defaults.
 - Pins third-party scanner action references (including Trivy) to non-floating refs to prevent supply-chain drift.
 - Publishes preview images only for **eligible same-repo PRs** (default on).
 - Manages ready-label lifecycle for eligible PRs (default on):
@@ -13,7 +13,7 @@ Reusable PR-preview readiness action for Docker workloads.
   - add only when build + push + live PR SHA validation pass, and Trivy passes when `scan-required=true`.
 - Detects fork PRs and skips preview publish + label mutation by default.
 - Always writes GitHub Step Summary.
-- Optionally posts a PR comment summary.
+- Posts a PR comment diagnostics summary via `gh` CLI by default (callers can disable).
 
 ## Inputs
 
@@ -30,9 +30,9 @@ Reusable PR-preview readiness action for Docker workloads.
 | `ready-label-name` | Label name to manage | `ready` |
 | `pr-number` | Optional PR number override | `''` |
 | `pr-head-sha` | Optional PR head SHA override | `''` |
-| `scan-required` | Block readiness when Trivy fails | `true` |
+| `scan-required` | Block readiness when Trivy fails | `false` |
 | `scan-severity-threshold` | Trivy severity gate threshold | `CRITICAL` |
-| `pr-comment-enabled` | Post PR comment summary | `false` |
+| `pr-comment-enabled` | Post/update PR diagnostics comment (`false` disables) | `true` |
 
 ## Outputs
 
@@ -50,15 +50,16 @@ Reusable PR-preview readiness action for Docker workloads.
 - **Eligibility:** same-repo pull requests are eligible; fork pull requests are ineligible by default and skip preview push plus label mutation.
 - **Stale-run guard:** readiness label add is gated by live PR `head.sha` revalidation so outdated runs do not mark stale commits as ready.
 - **Ready-label lifecycle:** when enabled, the action removes the ready label at start and re-adds it only after successful build/push and SHA guard pass.
-- **Scan gate defaults:** `scan-required=true` and `scan-severity-threshold=CRITICAL` by default; failed required scan blocks readiness.
+- **Scan/lint defaults:** `scan-required=false` and `scan-severity-threshold=CRITICAL` by default; Trivy and Hadolint findings are warnings unless callers opt into strict Trivy gating.
+- **Strict scan opt-in:** set `scan-required=true` to block preview push/readiness when Trivy fails.
 - **Immutable preview tag:** canonical preview tag is full `HEAD_SHA`; mutable PR tags are not the default contract.
 - **Stable outputs:** `image`, `tag`, `tags`, `digest`, `image-tag`, `image-digest` are always emitted for downstream workflow wiring.
-- **Optional PR comment:** set `pr-comment-enabled=true` to post PR comment summary; default is summary-only in GitHub Step Summary.
+- **PR diagnostics comment:** set `pr-comment-enabled=true` (default) to publish/update a PR comment with sections for readiness, warnings, Trivy outcome, Hadolint outcome, push outcome, stale PR head, and report excerpts (or `no report available`).
 
 ## Permissions and Concurrency Guidance
 
 - Use `packages: write` for preview image push to GHCR.
-- Use `pull-requests: write` (and `issues: write` if your label policy requires it) for ready-label lifecycle and optional PR comments.
+- Use `pull-requests: write` (and `issues: write` if your label policy requires it) for ready-label lifecycle and default-on PR diagnostics comments.
 - Use per-PR concurrency to prevent parallel label races, for example: `group: docker-tests-${{ github.event.pull_request.number }}` with `cancel-in-progress: true`.
 
 ## Example
