@@ -349,7 +349,7 @@ runs:
 
     - name: Comment readiness summary on PR
       if: ${{ inputs.pr-comment-enabled == 'true' }}
-      uses: mshick/add-pr-comment@v2
+      uses: mshick/add-pr-comment@v3
       with:
         message-id: docker-tests-preview-readiness
         refresh-message-position: true
