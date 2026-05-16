@@ -73,13 +73,13 @@ inputs:
   pr-comment-enabled:
     description: "Post PR comment summary"
     required: false
-    default: "false"
+    default: "true"
 
 runs:
   using: "composite"
   steps:
-    - name: Derive PR preview context
-      id: derive-context
+    - name: Generate PR preview context
+      id: context
       shell: bash
       run: |
         set -euo pipefail
@@ -124,21 +124,21 @@ runs:
       run: |
         {
           echo "## Docker preview readiness"
-          echo "- Image: \`${{ steps.derive-context.outputs.image_tag }}\`"
-          echo "- PR number: \`${{ steps.derive-context.outputs.pr_number || 'n/a' }}\`"
-          echo "- Same-repo PR eligibility: \`${{ steps.derive-context.outputs.eligible_for_preview }}\`"
+          echo "- Image: \`${{ steps.context.outputs.image_tag }}\`"
+          echo "- PR number: \`${{ steps.context.outputs.pr_number || 'n/a' }}\`"
+          echo "- Eligible: \`${{ steps.context.outputs.eligible_for_preview }}\`"
         } >> "${GITHUB_STEP_SUMMARY}"
 
     - name: Remove ready label at start
       id: remove-ready-label
-      if: ${{ steps.derive-context.outputs.eligible_for_preview == 'true' && inputs.ready-label-enabled == 'true' }}
+      if: ${{ steps.context.outputs.eligible_for_preview == 'true' && inputs.ready-label-enabled == 'true' }}
       uses: actions/github-script@v7
       with:
         github-token: ${{ inputs.github-token }}
         script: |
           const owner = context.repo.owner
           const repo = context.repo.repo
-          const issue_number = Number("${{ steps.derive-context.outputs.pr_number }}")
+          const issue_number = Number("${{ steps.context.outputs.pr_number }}")
           const name = "${{ inputs.ready-label-name }}"
           try {
             await github.rest.issues.removeLabel({ owner, repo, issue_number, name })
@@ -151,7 +151,7 @@ runs:
           }
 
     - name: Mark fork PR skip
-      if: ${{ steps.derive-context.outputs.eligible_for_preview != 'true' }}
+      if: ${{ steps.context.outputs.eligible_for_preview != 'true' }}
       shell: bash
       run: |
         {
@@ -170,7 +170,7 @@ runs:
       uses: docker/setup-buildx-action@v3
 
     - name: Login to container registry
-      if: ${{ steps.derive-context.outputs.eligible_for_preview == 'true' && inputs.preview-push-enabled == 'true' }}
+      if: ${{ steps.context.outputs.eligible_for_preview == 'true' && inputs.preview-push-enabled == 'true' }}
       uses: docker/login-action@v3
       with:
         registry: ${{ inputs.registry }}
@@ -185,7 +185,7 @@ runs:
         file: ${{ inputs.dockerfile-path }}
         push: false
         load: true
-        tags: ${{ steps.derive-context.outputs.image_tag }}
+        tags: ${{ steps.context.outputs.image_tag }}
         build-args: |
           ${{ inputs.build-args }}
 
@@ -197,22 +197,22 @@ runs:
         ignore-unfixed: true
         vuln-type: "os,library"
         severity: ${{ inputs.scan-severity-threshold }}
-        image-ref: ${{ steps.derive-context.outputs.image_tag }}
+        image-ref: ${{ steps.context.outputs.image_tag }}
         format: "table"
         output: "trivy-results.table"
       continue-on-error: true
 
     - name: Check live PR head SHA
       id: stale-sha-guard
-      if: ${{ steps.derive-context.outputs.eligible_for_preview == 'true' }}
+      if: ${{ steps.context.outputs.eligible_for_preview == 'true' }}
       uses: actions/github-script@v7
       with:
         github-token: ${{ inputs.github-token }}
         script: |
           const owner = context.repo.owner
           const repo = context.repo.repo
-          const pull_number = Number("${{ steps.derive-context.outputs.pr_number }}")
-          const expectedSha = "${{ steps.derive-context.outputs.pr_head_sha }}"
+          const pull_number = Number("${{ steps.context.outputs.pr_number }}")
+          const expectedSha = "${{ steps.context.outputs.pr_head_sha }}"
 
           const response = await github.rest.pulls.get({ owner, repo, pull_number })
           const liveSha = response.data.head.sha
@@ -226,13 +226,13 @@ runs:
 
     - name: Push immutable preview image
       id: preview-push
-      if: ${{ steps.derive-context.outputs.eligible_for_preview == 'true' && inputs.preview-push-enabled == 'true' && steps.build-image.outcome == 'success' && (inputs.scan-required != 'true' || steps.trivy.outcome == 'success') && (steps.stale-sha-guard.outputs.stale_pr_head != 'true') }}
+      if: ${{ steps.context.outputs.eligible_for_preview == 'true' && inputs.preview-push-enabled == 'true' && steps.build-image.outcome == 'success' && (inputs.scan-required != 'true' || steps.trivy.outcome == 'success') && (steps.stale-sha-guard.outputs.stale_pr_head != 'true') }}
       uses: docker/build-push-action@v6
       with:
         context: ${{ inputs.context }}
         file: ${{ inputs.dockerfile-path }}
         push: true
-        tags: ${{ steps.derive-context.outputs.image_tag }}
+        tags: ${{ steps.context.outputs.image_tag }}
         build-args: |
           ${{ inputs.build-args }}
 
@@ -241,7 +241,7 @@ runs:
       if: always()
       shell: bash
       env:
-        ELIGIBLE: ${{ steps.derive-context.outputs.eligible_for_preview }}
+        ELIGIBLE: ${{ steps.context.outputs.eligible_for_preview }}
         PREVIEW_PUSH_ENABLED: ${{ inputs.preview-push-enabled }}
         READY_LABEL_ENABLED: ${{ inputs.ready-label-enabled }}
         SCAN_REQUIRED: ${{ inputs.scan-required }}
@@ -249,9 +249,9 @@ runs:
         TRIVY_OUTCOME: ${{ steps.trivy.outcome }}
         PUSH_OUTCOME: ${{ steps.preview-push.outcome }}
         STALE_PR_HEAD: ${{ steps.stale-sha-guard.outputs.stale_pr_head }}
-        IMAGE: ${{ steps.derive-context.outputs.image }}
-        TAG: ${{ steps.derive-context.outputs.tag }}
-        IMAGE_TAG: ${{ steps.derive-context.outputs.image_tag }}
+        IMAGE: ${{ steps.context.outputs.image }}
+        TAG: ${{ steps.context.outputs.tag }}
+        IMAGE_TAG: ${{ steps.context.outputs.image_tag }}
         PUSH_DIGEST: ${{ steps.preview-push.outputs.digest }}
       run: |
         set -euo pipefail
@@ -330,7 +330,7 @@ runs:
         script: |
           const owner = context.repo.owner
           const repo = context.repo.repo
-          const issue_number = Number("${{ steps.derive-context.outputs.pr_number }}")
+          const issue_number = Number("${{ steps.context.outputs.pr_number }}")
           const labels = ["${{ inputs.ready-label-name }}"]
           await github.rest.issues.addLabels({ owner, repo, issue_number, labels })
 
@@ -356,6 +356,6 @@ runs:
         message-path: checks.txt
 
     - name: Logout from container registry
-      if: ${{ always() && steps.derive-context.outputs.eligible_for_preview == 'true' && inputs.preview-push-enabled == 'true' }}
+      if: ${{ always() && steps.context.outputs.eligible_for_preview == 'true' && inputs.preview-push-enabled == 'true' }}
       run: docker logout ${{ inputs.registry }}
       shell: bash
