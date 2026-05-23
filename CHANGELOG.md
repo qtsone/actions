@@ -1,3 +1,10 @@
+## [1.3.6](https://github.com/qtsone/actions/compare/v1.3.5...v1.3.6) (2026-05-23)
+
+
+### Bug Fixes
+
+* **kustomize:** bump 5.8.1 ([79c6c02](https://github.com/qtsone/actions/commit/79c6c0229c2e777940aa200557ec9ba5f513ed4f))
+
 ## [1.3.5](https://github.com/qtsone/actions/compare/v1.3.4...v1.3.5) (2026-05-16)
 
 
