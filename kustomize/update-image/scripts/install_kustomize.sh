@@ -1,12 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DEFAULT_KUSTOMIZE_VERSION="v5.4.3"
+DEFAULT_KUSTOMIZE_VERSION="v5.8.1"
+TEMP_DIR_TO_CLEANUP=""
 
 fail() {
   printf 'ERROR: %s\n' "$1" >&2
   exit 1
 }
+
+cleanup_tempdir() {
+  if [[ -n "${TEMP_DIR_TO_CLEANUP:-}" ]]; then
+    rm -rf "${TEMP_DIR_TO_CLEANUP}"
+  fi
+}
+trap cleanup_tempdir EXIT
 
 detect_os() {
   local os
@@ -46,11 +54,11 @@ install_kustomize() {
   arch="$(detect_arch)"
   base_url="https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2F${version}"
   checksums_url="${base_url}/checksums.txt"
-  tarball_name="kustomize_${version#v}_${os}_${arch}.tar.gz"
+  tarball_name="kustomize_${version}_${os}_${arch}.tar.gz"
   tarball_url="${base_url}/${tarball_name}"
 
   tempdir="$(mktemp -d)"
-  trap 'rm -rf "${tempdir}"' EXIT
+  TEMP_DIR_TO_CLEANUP="${tempdir}"
 
   archive="${tempdir}/${tarball_name}"
   checksum_file="${tempdir}/checksums.txt"
