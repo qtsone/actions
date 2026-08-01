@@ -7,29 +7,20 @@ Collection of reusable GitHub Actions for standardized workflows.
 Org repos do not hardcode a runner label. Every job resolves its runner from the
 `GHA_RUNNER_TYPE` / `GHA_RUNNER_SIZE` organization custom properties, which repo
 admins can change from **Settings → General → Custom properties** without editing
-any workflow.
-
-**Prefer delegating the whole job.** A job that calls one of the [reusable
-workflows](#reusable-workflows) below carries no runner configuration at all, because
-this repository owns it:
-
-```yaml
-jobs:
-  release:
-    uses: qtsone/actions/.github/workflows/semantic-release.yml@main
-```
-
-A reusable workflow executes in the *caller's* context — `github.event.repository` is
-the calling repo and `vars` resolves the calling repo's variables — so the expression
-below evaluates against the consumer even though it lives here.
-
-**Only for jobs too repo-specific to delegate**, paste this verbatim as `runs-on`:
+any workflow. Paste this verbatim as the `runs-on` of every job:
 
 ```yaml
 jobs:
   build:
     runs-on: ${{ vars.GHA_RUNNER_OVERRIDE || (github.event.repository.custom_properties.GHA_RUNNER_TYPE == 'PRIVATE' && format('arc-{0}', github.event.repository.custom_properties.GHA_RUNNER_SIZE) || 'ubuntu-latest') }}
 ```
+
+It is deliberately repeated rather than wrapped in a reusable workflow. `runs-on` can
+only leave a repo if the whole job does, and for a job that is already one `uses:` of a
+composite action here, that trades a single line for a second indirection and a
+merge-order dependency. A reusable workflow earns its keep when it centralises real
+multi-step logic — the `docker/build` → `kustomize/update-image` delivery chain is the
+candidate — not a runner label.
 
 Precedence, highest first:
 
@@ -82,11 +73,9 @@ in flight keep the value they started with.
   12, plus two 1-minute jobs — GitHub rounds every job up to a whole minute). ARC is
   the cost-free steady state; `GHA_RUNNER_OVERRIDE` is for incidents, not for comfort.
 - **Public repos cannot use ARC.** Org runner groups exclude public repositories by
-  default, so a public repo set to `PRIVATE` queues forever rather than failing. Leave
-  public repos on `PUBLIC` unless the runner group is explicitly opened up. What decides
-  this is the repository that *owns the run*, not where the workflow file lives: the
-  reusable workflows in this (public) repo run on ARC without complaint when a private
-  repo calls them.
+  default, so a public repo set to `PRIVATE` queues forever rather than failing — an
+  unmatched label queues, it does not error. Leave public repos on `PUBLIC` unless the
+  runner group is explicitly opened up.
 - **Size is per repository, not per job.** A repo that needs one heavy job and many
   light ones gets one size for all of them; a job that genuinely needs different
   hardware has to opt out of the shared expression and hardcode its label.
@@ -95,56 +84,6 @@ in flight keep the value they started with.
 - The ARC image (`ghcr.io/qtsone/runner`) pre-bakes Node, Python, uv, buf and bun into
   the tool cache. On `ubuntu-latest` the `setup-*` actions re-download them, so setup
   steps get slower even though the runners themselves are larger.
-
-## Reusable workflows
-
-Whole jobs, owned here. A consumer supplies only its triggers and its permissions;
-runner selection, steps and tool versions live in this repository.
-
-### `semantic-release.yml`
-
-Replaces the hand-rolled `release`/`tags` job that every app repo duplicated.
-
-```yaml
-jobs:
-  release:
-    # Required: repo default tokens are read-only, and a called workflow can only
-    # reduce the caller's permissions, never elevate them.
-    permissions:
-      contents: write
-      issues: write
-      pull-requests: write
-    uses: qtsone/actions/.github/workflows/semantic-release.yml@main
-    secrets:
-      deploy-key: ${{ secrets.DEPLOY_KEY }}
-```
-
-Inputs (all optional): `node-version`, `semantic-version`, `tag-prefix`, `tag-suffix`,
-`dry-run`, `debug`. Outputs: `new-release-published`, `new-release-version`.
-
-### `gitleaks.yml`
-
-```yaml
-jobs:
-  gitleaks:
-    uses: qtsone/actions/.github/workflows/gitleaks.yml@main
-```
-
-Inputs (all optional): `gitleaks-version`, `fetch-depth`. Needs no permissions beyond
-the read-only default.
-
-### Conventions
-
-- **Secrets are declared, never inherited.** This repository is public; a consumer
-  using `secrets: inherit` would expose every one of its secrets to a workflow defined
-  outside its own repo. Pass named secrets instead.
-- **Triggers stay with the consumer.** `on:` and its path filters describe that repo's
-  layout and cannot be centralised.
-- **Permissions stay with the consumer.** The caller's token is the ceiling, so the
-  grant has to be written where the token is issued.
-- `@main` tracks this repository's default branch, matching the composite actions
-  above. Whoever can push here can change what runs in every consumer — pin to a SHA
-  instead if that blast radius is unacceptable.
 
 ## Available Actions
 
