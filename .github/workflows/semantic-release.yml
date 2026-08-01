@@ -1,0 +1,70 @@
+name: Semantic Release
+
+# Owns runs-on so consumer repos do not carry a runner label at all. The
+# expression resolves against the *caller's* repository: a reusable workflow
+# runs in the caller's context, so github.event.repository is the calling repo
+# and vars resolves the calling repo's org/repo variables.
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        type: string
+        required: false
+        default: '20'
+      semantic-version:
+        type: string
+        required: false
+        default: '24.2.0'
+      tag-prefix:
+        type: string
+        required: false
+        default: 'v'
+      tag-suffix:
+        type: string
+        required: false
+        default: ''
+      dry-run:
+        type: boolean
+        required: false
+        default: false
+      debug:
+        type: boolean
+        required: false
+        default: true
+    secrets:
+      # Declared explicitly rather than relying on `secrets: inherit`. This
+      # workflow lives in a public repository; inheriting would expose every
+      # secret of a private caller to it.
+      deploy-key:
+        required: false
+    outputs:
+      new-release-published:
+        description: '"true" when semantic-release published a new version.'
+        value: ${{ jobs.release.outputs.new-release-published }}
+      new-release-version:
+        description: 'The published version, e.g. "1.3.0". Empty when nothing was released.'
+        value: ${{ jobs.release.outputs.new-release-version }}
+
+jobs:
+  release:
+    runs-on: ${{ vars.GHA_RUNNER_OVERRIDE || (github.event.repository.custom_properties.GHA_RUNNER_TYPE == 'PRIVATE' && format('arc-{0}', github.event.repository.custom_properties.GHA_RUNNER_SIZE) || 'ubuntu-latest') }}
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    outputs:
+      new-release-published: ${{ steps.release.outputs.new_release_published }}
+      new-release-version: ${{ steps.release.outputs.new_release_version }}
+    steps:
+      - name: Semantic Release
+        id: release
+        uses: qtsone/actions/release@main
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          ssh-key: ${{ secrets.deploy-key }}
+          node-version: ${{ inputs.node-version }}
+          semantic-version: ${{ inputs.semantic-version }}
+          tag-prefix: ${{ inputs.tag-prefix }}
+          tag-suffix: ${{ inputs.tag-suffix }}
+          dry-run: ${{ inputs.dry-run }}
+          debug: ${{ inputs.debug }}

@@ -1,0 +1,33 @@
+name: Gitleaks
+
+on:
+  workflow_call:
+    inputs:
+      gitleaks-version:
+        type: string
+        required: false
+        default: '8.24.3'
+      fetch-depth:
+        description: 'Checkout depth. Full history (0) is required to scan every commit on the branch.'
+        type: number
+        required: false
+        default: 0
+
+jobs:
+  gitleaks:
+    runs-on: ${{ vars.GHA_RUNNER_OVERRIDE || (github.event.repository.custom_properties.GHA_RUNNER_TYPE == 'PRIVATE' && format('arc-{0}', github.event.repository.custom_properties.GHA_RUNNER_SIZE) || 'ubuntu-latest') }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: ${{ inputs.fetch-depth }}
+
+      # The gitleaks-action requires GITLEAKS_LICENSE for org repos; the CLI does not.
+      - name: Gitleaks
+        env:
+          GITLEAKS_VERSION: ${{ inputs.gitleaks-version }}
+        run: |
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" | tar -xz gitleaks
+          ./gitleaks detect --source . --redact --verbose --exit-code 1
