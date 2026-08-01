@@ -1,0 +1,44 @@
+name: "Git Content Id"
+description: "Digest the tracked paths that can reach a build artifact, for content-addressed republishing"
+inputs:
+  target:
+    description: "Key to read from the config file. Requires config."
+    required: false
+    default: ""
+  config:
+    description: >-
+      JSON file mapping a target name to {include: [...]} or {exclude: [...]}. Keeps the
+      path lists in one reviewable place when several workflows need the same id.
+    required: false
+    default: ".github/image-content.json"
+  include:
+    description: "Newline-separated paths to hash. Mutually exclusive with exclude."
+    required: false
+    default: ""
+  exclude:
+    description: >-
+      Newline-separated top-level paths to skip; everything else tracked is hashed. Safer
+      than include, because a newly added path is covered by default.
+    required: false
+    default: ""
+  ref:
+    description: "Git ref to read the tree from"
+    required: false
+    default: "HEAD"
+outputs:
+  id:
+    description: "16-character digest of the selected tracked content"
+    value: ${{ steps.compute.outputs.id }}
+runs:
+  using: "composite"
+  steps:
+    - name: Compute content id
+      id: compute
+      shell: bash
+      env:
+        TARGET: ${{ inputs.target }}
+        CONFIG: ${{ inputs.config }}
+        INCLUDE: ${{ inputs.include }}
+        EXCLUDE: ${{ inputs.exclude }}
+        REF: ${{ inputs.ref }}
+      run: ${{ github.action_path }}/scripts/content_id.sh

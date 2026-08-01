@@ -1,0 +1,46 @@
+name: "Docker Promote"
+description: "Republish an already-built image under new tags via a registry-side manifest copy"
+inputs:
+  image-name:
+    description: "Image name without registry, e.g. owner/repo"
+    required: true
+  content-tag:
+    description: >-
+      Tag naming the content to republish, e.g. src-<digest> from git/content-id. Absent
+      from the registry means the content was never built, and the action reports
+      promoted=false rather than failing so the caller can build instead.
+    required: true
+  tags:
+    description: "Newline-separated tags to publish. Bare values are prefixed with the image."
+    required: true
+  annotations:
+    description: >-
+      Newline-separated OCI annotations, e.g.
+      index:org.opencontainers.image.version=1.2.3. A promoted image keeps the labels it
+      was built with, so this is how a release records what it is now.
+    required: false
+    default: ""
+  registry:
+    description: "Container registry"
+    required: false
+    default: "ghcr.io"
+outputs:
+  promoted:
+    description: "true when the content was found and republished"
+    value: ${{ steps.promote.outputs.promoted }}
+  digest:
+    description: "Manifest digest of the promoted image, empty on a miss"
+    value: ${{ steps.promote.outputs.digest }}
+runs:
+  using: "composite"
+  steps:
+    - name: Promote image
+      id: promote
+      shell: bash
+      env:
+        REGISTRY: ${{ inputs.registry }}
+        IMAGE_NAME: ${{ inputs.image-name }}
+        CONTENT_TAG: ${{ inputs.content-tag }}
+        TAGS: ${{ inputs.tags }}
+        ANNOTATIONS: ${{ inputs.annotations }}
+      run: ${{ github.action_path }}/scripts/promote.sh

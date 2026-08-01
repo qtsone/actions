@@ -39,6 +39,7 @@ main() {
   trap cleanup_tempfiles EXIT
 
   overlay_path="$(trim "${OVERLAY_PATH:-}")"
+  extra_paths="${EXTRA_PATHS:-}"
   image_name="$(trim "${IMAGE_NAME:-}")"
   new_name="$(trim "${NEW_NAME:-}")"
   tag="$(trim "${TAG:-}")"
@@ -133,6 +134,18 @@ main() {
   [[ -n "${commit_user_email}" ]] || fail "commit-user-email is required when commit=true"
 
   git add "${overlay_path_abs}/kustomization.yaml"
+
+  # Files the caller rewrote to stay in step with this image bump, staged here so they
+  # land in the same commit. Two commits would mean two Argo syncs and a window where the
+  # overlay's image tag and whatever tracks it disagree.
+  if [[ -n "${extra_paths}" ]]; then
+    while IFS= read -r extra; do
+      [[ -n "${extra}" ]] || continue
+      [[ -e "${extra}" ]] || fail "extra-paths entry does not exist: ${extra}"
+      git add "${extra}"
+    done <<< "${extra_paths}"
+  fi
+
   changed="$(git diff --cached --name-only)"
   if [[ -z "${changed}" ]]; then
     printf 'No-op after staging: no commit created\n'

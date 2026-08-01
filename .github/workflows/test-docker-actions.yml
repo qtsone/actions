@@ -5,6 +5,8 @@ on:
     paths:
       - 'docker/build/**'
       - 'docker/tests/**'
+      - 'docker/promote/**'
+      - 'git/content-id/**'
       - '.github/workflows/test-docker-actions.yml'
 
 jobs:
@@ -14,6 +16,21 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+
+      # ubuntu-latest resolves `yq` to the snap-confined build, which fails to read the
+      # file it is pointed at and exits printing nothing. A check that greps for an
+      # expected string then fails, while one that greps for a forbidden string passes
+      # vacuously — the worse of the two, because it reports a contract as upheld when
+      # nothing was inspected. Install mikefarah yq ahead of it on PATH.
+      - name: Install yq
+        run: |
+          set -euo pipefail
+          sudo curl -fsSL -o /usr/local/bin/yq \
+            https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+          command -v yq
+          yq --version
+
 
       - name: Verify output keys exist in action metadata
         run: |
@@ -54,6 +71,21 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+
+      # ubuntu-latest resolves `yq` to the snap-confined build, which fails to read the
+      # file it is pointed at and exits printing nothing. A check that greps for an
+      # expected string then fails, while one that greps for a forbidden string passes
+      # vacuously — the worse of the two, because it reports a contract as upheld when
+      # nothing was inspected. Install mikefarah yq ahead of it on PATH.
+      - name: Install yq
+        run: |
+          set -euo pipefail
+          sudo curl -fsSL -o /usr/local/bin/yq \
+            https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+          command -v yq
+          yq --version
+
 
       - name: Verify required input defaults exist
         run: |
@@ -117,12 +149,14 @@ jobs:
         run: |
           set -euo pipefail
 
-          if yq -r '.runs.steps[]?.with.tags // ""' docker/tests/action.yaml | grep -q 'pr-'; then
+          with_tags=$(yq -r '.runs.steps[]?.with.tags // ""' docker/tests/action.yaml)
+          if printf '%s\n' "${with_tags}" | grep -q 'pr-'; then
             echo "Mutable pr-<number> tag detected in docker/tests action" >&2
             exit 1
           fi
 
-          if ! yq -r '.runs.steps[]?.run // ""' docker/tests/action.yaml | grep -q 'pr_head_sha'; then
+          run_blocks=$(yq -r '.runs.steps[]?.run // ""' docker/tests/action.yaml)
+          if ! printf '%s\n' "${run_blocks}" | grep -q 'pr_head_sha'; then
             echo "Expected script to derive immutable HEAD_SHA tag" >&2
             exit 1
           fi
@@ -164,6 +198,58 @@ jobs:
           local_if=$(yq -r '.runs.steps[] | select(.id == "build-image-local") | .if // ""' docker/tests/action.yaml)
           printf '%s\n' "${local_if}" | grep -q "eligible_for_preview != 'true' || inputs.preview-push-enabled != 'true'"
 
+      - name: Verify docker/tests and docker/promote share one implementation
+        run: |
+          set -euo pipefail
+
+          # Two copies of "republish this image" would drift, and the copy that drifted
+          # would be the one deciding whether a release ships stale bytes.
+          promote_run=$(yq -r '.runs.steps[] | select(.id == "promote") | .run // ""' docker/tests/action.yaml)
+          printf '%s\n' "${promote_run}" | grep -q 'promote/scripts/promote.sh'
+
+          if [ ! -x docker/promote/scripts/promote.sh ]; then
+            echo "docker/promote/scripts/promote.sh missing or not executable" >&2
+            exit 1
+          fi
+
+      - name: Verify promote reports a miss instead of failing
+        run: |
+          set -euo pipefail
+
+          # A caller must be able to fall back to building. Exiting non-zero on a miss
+          # would turn "not built yet" into a red pipeline.
+          grep -q 'promoted=false' docker/promote/scripts/promote.sh
+          grep -A2 'promoted=false' docker/promote/scripts/promote.sh | grep -q 'exit 0'
+          grep -q 'imagetools inspect' docker/promote/scripts/promote.sh
+
+      - name: Verify content-id refuses to hash an empty set
+        run: |
+          set -euo pipefail
+
+          # sha256 of nothing is stable across every commit, so an empty match would
+          # republish the first artifact ever built onto every later release.
+          grep -q 'refusing to emit the digest of an empty set' git/content-id/scripts/content_id.sh
+          grep -q 'give include or exclude, not both' git/content-id/scripts/content_id.sh
+
+          # Reads the object database, never the working tree: the id has to match between
+          # a PR checkout and a tag checkout of the same content.
+          grep -q 'git ls-tree' git/content-id/scripts/content_id.sh
+          if grep -qE '(sha256sum|cat) .*\$\{?path' git/content-id/scripts/content_id.sh; then
+            echo "content_id.sh appears to read working-tree files" >&2
+            exit 1
+          fi
+
+      - name: Verify content-id is portable to the runner shell
+        run: |
+          set -euo pipefail
+          bash -n git/content-id/scripts/content_id.sh
+          bash -n docker/promote/scripts/promote.sh
+          # mapfile is bash 4+; the scripts must not assume it.
+          if grep -qE '\bmapfile\b|\breadarray\b' git/content-id/scripts/content_id.sh docker/promote/scripts/promote.sh; then
+            echo "mapfile/readarray used; not available on bash 3.2" >&2
+            exit 1
+          fi
+
       - name: Verify promotion is content-addressed and opt-in
         run: |
           set -euo pipefail
@@ -178,9 +264,9 @@ jobs:
           printf '%s\n' "${promote_if}" | grep -q "inputs.content-tag != ''"
           printf '%s\n' "${promote_if}" | grep -q "eligible_for_preview == 'true'"
 
-          # A promotion must never invent a tag it did not verify is present.
-          printf '%s\n' "${promote_run}" | grep -q 'imagetools inspect'
-          printf '%s\n' "${promote_run}" | grep -q 'promoted=false'
+          # A promotion must never invent a tag it did not verify is present. The check
+          # lives in the shared script, which the step above asserts is what runs.
+          grep -q 'imagetools inspect' docker/promote/scripts/promote.sh
 
           build_if=$(yq -r '.runs.steps[] | select(.id == "build-image") | .if // ""' docker/tests/action.yaml)
           printf '%s\n' "${build_if}" | grep -q "steps.promote.outputs.promoted != 'true'"
@@ -337,7 +423,8 @@ jobs:
           for section in '## Readiness' '## Warnings' '## Trivy outcome' '## Hadolint outcome' '## Push outcome' '## Stale PR head'; do
             printf '%s\n' "${comment_run}" | grep -q "${section}"
           done
-          if yq -r '.runs.steps[]?.with.tags // ""' docker/tests/action.yaml | grep -q 'pr-'; then
+          with_tags=$(yq -r '.runs.steps[]?.with.tags // ""' docker/tests/action.yaml)
+          if printf '%s\n' "${with_tags}" | grep -q 'pr-'; then
             echo "Mutable pr-<number> tag detected in docker/tests action" >&2
             exit 1
           fi

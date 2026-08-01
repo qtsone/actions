@@ -44,6 +44,13 @@ inputs:
     description: "Pinned kustomize version for installer"
     required: false
     default: "v5.4.3"
+  extra-paths:
+    description: >-
+      Newline-separated files to stage alongside kustomization.yaml, for values the caller
+      rewrote to stay in step with this image bump. They land in the same commit so no
+      sync ever sees the two disagree.
+    required: false
+    default: ""
   commit-message:
     description: "Commit message used when commit=true"
     required: false
@@ -99,6 +106,7 @@ runs:
       shell: bash
       env:
         OVERLAY_PATH: ${{ inputs.overlay-path }}
+        EXTRA_PATHS: ${{ inputs.extra-paths }}
         IMAGE_NAME: ${{ inputs.image-name }}
         NEW_NAME: ${{ inputs.new-name }}
         TAG: ${{ inputs.tag }}

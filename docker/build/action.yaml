@@ -70,6 +70,13 @@ inputs:
     description: "Additional tags (newline separated)"
     required: false
     default: ""
+  extra-tags:
+    description: >-
+      Newline-separated tags to publish in addition to the derived ones, for content tags
+      and other aliases that should be pushed by the same build rather than re-tagged
+      afterwards.
+    required: false
+    default: ""
   cache:
     description: >-
       Read and write a registry layer cache at <image>:cache. Worth it when the cached
@@ -122,6 +129,7 @@ runs:
         push: true
         tags: |
           ${{ inputs.tags != '' && inputs.tags || steps.meta.outputs.tags }}
+          ${{ inputs.extra-tags }}
         labels: ${{ steps.meta.outputs.labels }}
         cache-from: ${{ inputs.cache == 'true' && format('type=registry,ref={0}/{1}:cache', inputs.registry, inputs.image-name) || '' }}
         cache-to: ${{ inputs.cache == 'true' && format('type=registry,mode=max,ref={0}/{1}:cache', inputs.registry, inputs.image-name) || '' }}
