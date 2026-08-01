@@ -133,15 +133,57 @@ jobs:
 
           derive_run=$(yq -r '.runs.steps[] | select(.id == "context") | .run // ""' docker/tests/action.yaml)
           finalize_run=$(yq -r '.runs.steps[] | select(.id == "finalize") | .run // ""' docker/tests/action.yaml)
-          preview_if=$(yq -r '.runs.steps[] | select(.id == "preview-push") | .if // ""' docker/tests/action.yaml)
+          build_if=$(yq -r '.runs.steps[] | select(.id == "build-image") | .if // ""' docker/tests/action.yaml)
 
           printf '%s\n' "${derive_run}" | grep -q 'eligible_for_preview="true"'
           printf '%s\n' "${derive_run}" | grep -q 'if \[ -n "${pr_number}" \] && \[ "${same_repo_pr}" = "true" \]'
-          printf '%s\n' "${preview_if}" | grep -q "steps.context.outputs.eligible_for_preview == 'true'"
-          printf '%s\n' "${preview_if}" | grep -q "inputs.preview-push-enabled == 'true'"
-          printf '%s\n' "${preview_if}" | grep -q "steps.build-image.outcome == 'success'"
-          printf '%s\n' "${preview_if}" | grep -q "steps.stale-sha-guard.outputs.stale_pr_head != 'true'"
+          printf '%s\n' "${build_if}" | grep -q "steps.context.outputs.eligible_for_preview == 'true'"
+          printf '%s\n' "${build_if}" | grep -q "inputs.preview-push-enabled == 'true'"
+
+          # The readiness gate, not the push, is what holds a stale or unscanned image
+          # back from a cluster. The build pushes directly so the image never has to be
+          # exported to the local daemon and rebuilt to publish it.
           printf '%s\n' "${finalize_run}" | grep -q 'if \[ "${ELIGIBLE}" = "true" \] && \[ "${READY_LABEL_ENABLED}" = "true" \] && \[ "${build_pass}" = "true" \] && \[ "${push_pass}" = "true" \] && \[ "${stale_pr_head}" != "true" \]'
+
+      - name: Verify the image is built once and pushed from that build
+        run: |
+          set -euo pipefail
+
+          builds=$(yq -r '[.runs.steps[] | select(.uses // "" | test("docker/build-push-action"))] | length' docker/tests/action.yaml)
+          if [ "${builds}" -ne 2 ]; then
+            echo "Expected exactly two build steps (push path + no-registry fallback), got ${builds}" >&2
+            exit 1
+          fi
+
+          push_build=$(yq -r '.runs.steps[] | select(.id == "build-image") | .with.push' docker/tests/action.yaml)
+          local_build=$(yq -r '.runs.steps[] | select(.id == "build-image-local") | .with.load' docker/tests/action.yaml)
+          [ "${push_build}" = "true" ]
+          [ "${local_build}" = "true" ]
+
+          # The two paths are mutually exclusive, so no context ever builds twice.
+          local_if=$(yq -r '.runs.steps[] | select(.id == "build-image-local") | .if // ""' docker/tests/action.yaml)
+          printf '%s\n' "${local_if}" | grep -q "eligible_for_preview != 'true' || inputs.preview-push-enabled != 'true'"
+
+      - name: Verify promotion is content-addressed and opt-in
+        run: |
+          set -euo pipefail
+
+          promote_if=$(yq -r '.runs.steps[] | select(.id == "promote") | .if // ""' docker/tests/action.yaml)
+          promote_run=$(yq -r '.runs.steps[] | select(.id == "promote") | .run // ""' docker/tests/action.yaml)
+          default=$(yq -r '.inputs."content-tag".default // ""' docker/tests/action.yaml)
+
+          # Empty by default: a caller that does not compute a content tag keeps the
+          # previous build-every-time behaviour.
+          [ -z "${default}" ]
+          printf '%s\n' "${promote_if}" | grep -q "inputs.content-tag != ''"
+          printf '%s\n' "${promote_if}" | grep -q "eligible_for_preview == 'true'"
+
+          # A promotion must never invent a tag it did not verify is present.
+          printf '%s\n' "${promote_run}" | grep -q 'imagetools inspect'
+          printf '%s\n' "${promote_run}" | grep -q 'promoted=false'
+
+          build_if=$(yq -r '.runs.steps[] | select(.id == "build-image") | .if // ""' docker/tests/action.yaml)
+          printf '%s\n' "${build_if}" | grep -q "steps.promote.outputs.promoted != 'true'"
 
       - name: Verify fork skip path contract
         run: |
@@ -220,19 +262,21 @@ jobs:
           printf '%s\n' "${publish_run}" | grep -q 'gh pr comment'
           printf '%s\n' "${publish_run}" | grep -q 'rm -f "\${body_file}"'
 
-      - name: Verify scan-required false permits push/readiness despite scan failure
+      - name: Verify scan-required false permits readiness despite scan failure
         run: |
           set -euo pipefail
 
-          preview_if=$(yq -r '.runs.steps[] | select(.id == "preview-push") | .if // ""' docker/tests/action.yaml)
+          build_if=$(yq -r '.runs.steps[] | select(.id == "build-image") | .if // ""' docker/tests/action.yaml)
           finalize_run=$(yq -r '.runs.steps[] | select(.id == "finalize") | .run // ""' docker/tests/action.yaml)
 
-          if printf '%s\n' "${preview_if}" | grep -q "steps.trivy.outcome == 'success' &&"; then
-            echo "Preview push is hard-gated on Trivy success even when scan-required=false" >&2
+          # The build now pushes, so it cannot depend on a scan that has not run yet.
+          # scan-required moved entirely into the readiness gate: with it set, a failing
+          # scan withholds the ready label and nothing deploys the image.
+          if printf '%s\n' "${build_if}" | grep -q "steps.trivy"; then
+            echo "Build/push references the Trivy outcome, which runs after it" >&2
             exit 1
           fi
 
-          printf '%s\n' "${preview_if}" | grep -q "(inputs.scan-required != 'true' || steps.trivy.outcome == 'success')"
           printf '%s\n' "${finalize_run}" | grep -q 'if \[ "${scan_required}" = "true" \]; then'
           printf '%s\n' "${finalize_run}" | grep -q 'else'
           printf '%s\n' "${finalize_run}" | grep -q 'ready_allowed="true"'

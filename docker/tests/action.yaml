@@ -74,6 +74,14 @@ inputs:
     description: "Post PR comment summary"
     required: false
     default: "true"
+  content-tag:
+    description: >-
+      Tag naming the content this build would produce, e.g. src-<digest>. When the
+      registry already holds it the image is re-tagged to the PR head instead of
+      rebuilt, and a fresh build publishes it so later runs can do the same. Empty
+      disables both.
+    required: false
+    default: ""
 
 runs:
   using: "composite"
@@ -178,8 +186,57 @@ runs:
         username: ${{ github.actor }}
         password: ${{ inputs.github-token }}
 
-    - name: Build Docker image
+    # A manifest copy inside the registry: no layer moves and no build runs. Only
+    # reachable when the caller supplies a content-tag it computes deterministically
+    # from the sources that enter the image, so a hit means identical bytes. A miss
+    # falls through to the build below.
+    - name: Promote image already built for this content
+      id: promote
+      if: ${{ inputs.content-tag != '' && steps.context.outputs.eligible_for_preview == 'true' && inputs.preview-push-enabled == 'true' }}
+      shell: bash
+      env:
+        IMAGE: ${{ steps.context.outputs.image }}
+        IMAGE_TAG: ${{ steps.context.outputs.image_tag }}
+        CONTENT_TAG: ${{ inputs.content-tag }}
+      run: |
+        set -euo pipefail
+        if docker buildx imagetools inspect "${IMAGE}:${CONTENT_TAG}" >/dev/null 2>&1; then
+          docker buildx imagetools create --tag "${IMAGE_TAG}" "${IMAGE}:${CONTENT_TAG}"
+          echo "promoted=true" >> "${GITHUB_OUTPUT}"
+          echo "- Promoted \`${IMAGE}:${CONTENT_TAG}\` — no rebuild" >> "${GITHUB_STEP_SUMMARY}"
+        else
+          echo "promoted=false" >> "${GITHUB_OUTPUT}"
+        fi
+
+    # One build, pushed straight from BuildKit. The previous shape built twice — once
+    # with load:true so Trivy could read it from the daemon, which spent 52s writing an
+    # OCI tarball, then again to push. Trivy reads the pushed reference instead.
+    - name: Build and push Docker image
       id: build-image
+      env:
+        # The post step uploads a build-summary artifact via `buildx history export
+        # --finalize`. Four of them cost 65s of teardown on a two-image job.
+        DOCKER_BUILD_SUMMARY: "false"
+      if: ${{ steps.promote.outputs.promoted != 'true' && steps.context.outputs.eligible_for_preview == 'true' && inputs.preview-push-enabled == 'true' }}
+      uses: docker/build-push-action@v6
+      with:
+        context: ${{ inputs.context }}
+        file: ${{ inputs.dockerfile-path }}
+        push: true
+        tags: ${{ inputs.content-tag != '' && format('{0},{1}:{2}', steps.context.outputs.image_tag, steps.context.outputs.image, inputs.content-tag) || steps.context.outputs.image_tag }}
+        build-args: |
+          ${{ inputs.build-args }}
+
+    # Fork PRs and non-PR contexts have no push credentials, so the image stays in the
+    # local daemon and is scanned from there. This is the only path that still pays the
+    # OCI export.
+    - name: Build Docker image (no registry access)
+      id: build-image-local
+      env:
+        # The post step uploads a build-summary artifact via `buildx history export
+        # --finalize`. Four of them cost 65s of teardown on a two-image job.
+        DOCKER_BUILD_SUMMARY: "false"
+      if: ${{ steps.context.outputs.eligible_for_preview != 'true' || inputs.preview-push-enabled != 'true' }}
       uses: docker/build-push-action@v6
       with:
         context: ${{ inputs.context }}
@@ -225,18 +282,6 @@ runs:
             core.warning(`stale_pr_head: expected ${expectedSha}, got ${liveSha}`)
           }
 
-    - name: Push immutable preview image
-      id: preview-push
-      if: ${{ steps.context.outputs.eligible_for_preview == 'true' && inputs.preview-push-enabled == 'true' && steps.build-image.outcome == 'success' && (inputs.scan-required != 'true' || steps.trivy.outcome == 'success') && (steps.stale-sha-guard.outputs.stale_pr_head != 'true') }}
-      uses: docker/build-push-action@v6
-      with:
-        context: ${{ inputs.context }}
-        file: ${{ inputs.dockerfile-path }}
-        push: true
-        tags: ${{ steps.context.outputs.image_tag }}
-        build-args: |
-          ${{ inputs.build-args }}
-
     - name: Finalize outputs and readiness gate
       id: finalize
       if: always()
@@ -246,15 +291,16 @@ runs:
         PREVIEW_PUSH_ENABLED: ${{ inputs.preview-push-enabled }}
         READY_LABEL_ENABLED: ${{ inputs.ready-label-enabled }}
         SCAN_REQUIRED: ${{ inputs.scan-required }}
-        BUILD_OUTCOME: ${{ steps.build-image.outcome }}
+        BUILD_OUTCOME: ${{ steps.promote.outputs.promoted == 'true' && 'success' || (steps.build-image.outcome || steps.build-image-local.outcome) }}
         TRIVY_OUTCOME: ${{ steps.trivy.outcome }}
         HADOLINT_OUTCOME: ${{ steps.hadolint.outcome }}
-        PUSH_OUTCOME: ${{ steps.preview-push.outcome }}
+        PUSH_OUTCOME: ${{ steps.promote.outputs.promoted == 'true' && 'success' || steps.build-image.outcome }}
+        PROMOTED: ${{ steps.promote.outputs.promoted }}
         STALE_PR_HEAD: ${{ steps.stale-sha-guard.outputs.stale_pr_head }}
         IMAGE: ${{ steps.context.outputs.image }}
         TAG: ${{ steps.context.outputs.tag }}
         IMAGE_TAG: ${{ steps.context.outputs.image_tag }}
-        PUSH_DIGEST: ${{ steps.preview-push.outputs.digest }}
+        PUSH_DIGEST: ${{ steps.build-image.outputs.digest }}
       run: |
         set -euo pipefail
 
@@ -316,7 +362,7 @@ runs:
         } >> "${GITHUB_OUTPUT}"
 
         {
-          echo "- Build outcome: ${BUILD_OUTCOME}"
+          echo "- Build outcome: ${BUILD_OUTCOME} (promoted=${PROMOTED:-false})"
           echo "- Hadolint outcome: ${HADOLINT_OUTCOME}"
           echo "- Scan outcome: ${TRIVY_OUTCOME} (scan_required=${scan_required})"
           echo "- Push outcome: ${PUSH_OUTCOME:-skipped} (preview_push_enabled=${PREVIEW_PUSH_ENABLED})"
@@ -347,7 +393,7 @@ runs:
         SCAN_REQUIRED: ${{ inputs.scan-required }}
         TRIVY_OUTCOME: ${{ steps.trivy.outcome }}
         HADOLINT_OUTCOME: ${{ steps.hadolint.outcome }}
-        PUSH_OUTCOME: ${{ steps.preview-push.outcome }}
+        PUSH_OUTCOME: ${{ steps.promote.outputs.promoted == 'true' && 'success' || steps.build-image.outcome }}
         STALE_PR_HEAD: ${{ steps.finalize.outputs.stale_pr_head }}
         IMAGE_TAG: ${{ steps.finalize.outputs.image-tag }}
         DIGEST: ${{ steps.finalize.outputs.digest }}

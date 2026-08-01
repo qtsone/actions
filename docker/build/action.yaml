@@ -70,6 +70,14 @@ inputs:
     description: "Additional tags (newline separated)"
     required: false
     default: ""
+  cache:
+    description: >-
+      Read and write a registry layer cache at <image>:cache. Worth it when the cached
+      steps are slow and the layers they produce are small. Set false when the reverse
+      holds — moving a large layer over the network can cost more than rerunning the
+      step that built it.
+    required: false
+    default: "true"
 
 runs:
   using: "composite"
@@ -104,6 +112,10 @@ runs:
     - name: Build and push Docker image
       id: build-and-push
       uses: docker/build-push-action@v5
+      env:
+        # The post step uploads a build-summary artifact via `buildx history export
+        # --finalize`, which costs tens of seconds per build and is rarely opened.
+        DOCKER_BUILD_SUMMARY: "false"
       with:
         context: ${{ inputs.context }}
         file: ${{ inputs.dockerfile-path }}
@@ -111,8 +123,8 @@ runs:
         tags: |
           ${{ inputs.tags != '' && inputs.tags || steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
-        cache-from: type=registry,ref=${{ inputs.registry }}/${{ inputs.image-name }}:cache
-        cache-to: type=registry,mode=max,ref=${{ inputs.registry }}/${{ inputs.image-name }}:cache
+        cache-from: ${{ inputs.cache == 'true' && format('type=registry,ref={0}/{1}:cache', inputs.registry, inputs.image-name) || '' }}
+        cache-to: ${{ inputs.cache == 'true' && format('type=registry,mode=max,ref={0}/{1}:cache', inputs.registry, inputs.image-name) || '' }}
         build-args: |
           ${{ inputs.build-args }}
 
