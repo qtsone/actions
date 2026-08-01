@@ -4,45 +4,78 @@ Collection of reusable GitHub Actions for standardized workflows.
 
 ## Runner selection
 
-Org repos do not hardcode a runner label. Every job selects its runner through an
-organization-level Actions variable, so the whole org can be moved between the
-self-hosted ARC pool and GitHub-hosted runners without touching a single repo.
+Org repos do not hardcode a runner label. Every job resolves its runner from the
+`GHA_RUNNER_TYPE` / `GHA_RUNNER_SIZE` organization custom properties, which repo
+admins can change from **Settings → General → Custom properties** without editing
+any workflow. Paste this verbatim as the `runs-on` of every job:
 
 ```yaml
 jobs:
   build:
-    runs-on: ${{ vars.RUNNER_SMALL || 'ubuntu-latest' }}
+    runs-on: ${{ vars.GHA_RUNNER_OVERRIDE || (github.event.repository.custom_properties.GHA_RUNNER_TYPE == 'PRIVATE' && format('arc-{0}', github.event.repository.custom_properties.GHA_RUNNER_SIZE) || 'ubuntu-latest') }}
 ```
 
-| Variable | ARC value | Backing scale set |
+Precedence, highest first:
+
+| Source | Scope | Wins when |
 |---|---|---|
-| `RUNNER_SMALL` | `arc-small` | `arc-runner-small` (max 6, 1 CPU / 1Gi) |
-| `RUNNER_MEDIUM` | `arc-medium` | `arc-runner-medium` (max 3, 2 CPU / 4Gi) |
+| `vars.GHA_RUNNER_OVERRIDE` | org Actions variable | set to a non-empty label |
+| `GHA_RUNNER_TYPE` = `PRIVATE` | repo custom property | resolves to `arc-<GHA_RUNNER_SIZE>` |
+| `ubuntu-latest` | — | `GHA_RUNNER_TYPE` is `PUBLIC`, the schema default |
 
-Scale sets are defined in `qtsone/cloud-1` (`gitops/org/projects/ci.yaml`).
-`arc-large` exists there but no workflow currently targets it, so it has no variable.
+`GHA_RUNNER_SIZE` maps onto the scale sets defined in `qtsone/cloud-1`
+(`gitops/org/projects/ci.yaml`):
 
-**Why the `||` fallback.** `runs-on` accepts only the `github`, `needs`, `strategy`,
-`matrix`, `vars` and `inputs` contexts. An undefined variable resolves to an empty
-string, and an empty `runs-on` is a workflow *configuration* error — every job in the
-repo goes red with an error that does not name the missing variable. The fallback
-converts that into a job that merely runs somewhere else, and makes the behaviour for
-fork PRs (where variable availability is not guaranteed) explicit rather than fatal.
+| `GHA_RUNNER_SIZE` | Label | Capacity |
+|---|---|---|
+| `SMALL` | `arc-small` | max 6 · 1 CPU / 1Gi |
+| `MEDIUM` | `arc-medium` | max 3 · 2 CPU / 4Gi |
+| `LARGE` | `arc-large` | max 2 · 4 CPU / 4Gi |
 
-**Switching the whole org.** Requires `admin:org`.
+### Why this works
+
+Custom properties have no dedicated expression context, but they ride along on the
+`repository` object of the webhook payload, so they are reachable as
+`github.event.repository.custom_properties.*`. `runs-on` accepts the `github` and
+`vars` contexts, so the whole decision resolves before scheduling — no resolver job,
+no added latency, and nothing billed to make the decision.
+
+`format('arc-{0}', 'SMALL')` yields `arc-SMALL`. Runner label matching is
+case-insensitive, so that matches the `arc-small` scale set; the property values do
+not need to be lower-cased.
+
+### The override
+
+Custom property values are per-repository — an "org-level value" is only a *default*
+for repos that have not set their own, so it cannot override a repo that has. The org
+Actions variable `GHA_RUNNER_OVERRIDE` is the org-scoped lever that outranks every
+repo, which is what makes it the escape hatch when the ARC pool is unavailable:
 
 ```sh
-gh api -X PATCH /orgs/qtsone/actions/variables/RUNNER_SMALL  -f value=ubuntu-latest
-gh api -X PATCH /orgs/qtsone/actions/variables/RUNNER_MEDIUM -f value=ubuntu-latest
+gh api -X PATCH /orgs/qtsone/actions/variables/GHA_RUNNER_OVERRIDE -f value=ubuntu-latest  # force whole org onto hosted
+gh api -X PATCH /orgs/qtsone/actions/variables/GHA_RUNNER_OVERRIDE -f value=''             # hand control back to each repo
 ```
 
-Substitute `arc-small` / `arc-medium` to move back. The change takes effect on the next
-workflow run; runs already queued or in flight keep the value they started with.
+Requires `admin:org`. It takes effect on the next workflow run; runs already queued or
+in flight keep the value they started with.
 
-> Org-hosted runners are billed for private repos, and the ARC image
-> (`ghcr.io/qtsone/runner`) pre-bakes Node, Python, uv, buf and bun into the tool cache.
-> On `ubuntu-latest` the `setup-*` actions re-download those instead of hitting the
-> baked cache, so setup steps get slower even though the runners themselves are larger.
+### Constraints worth knowing
+
+- **Hosted minutes are capped and private repos consume them.** One `stay-now` PR
+  validation measured ~32 billable minutes on `ubuntu-latest` (`quality` 18, `image`
+  12, plus two 1-minute jobs — GitHub rounds every job up to a whole minute). ARC is
+  the cost-free steady state; `GHA_RUNNER_OVERRIDE` is for incidents, not for comfort.
+- **Public repos cannot use ARC.** Org runner groups exclude public repositories by
+  default, so a public repo set to `PRIVATE` queues forever rather than failing. Leave
+  public repos on `PUBLIC` unless the runner group is explicitly opened up.
+- **Size is per repository, not per job.** A repo that needs one heavy job and many
+  light ones gets one size for all of them; a job that genuinely needs different
+  hardware has to opt out of the shared expression and hardcode its label.
+- **`GHA_RUNNER_SIZE` is ignored when the type is `PUBLIC`.** Mapping it onto GitHub's
+  larger hosted runners would need those runners provisioned and named at the org first.
+- The ARC image (`ghcr.io/qtsone/runner`) pre-bakes Node, Python, uv, buf and bun into
+  the tool cache. On `ubuntu-latest` the `setup-*` actions re-download them, so setup
+  steps get slower even though the runners themselves are larger.
 
 ## Available Actions
 
