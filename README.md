@@ -2,6 +2,48 @@
 
 Collection of reusable GitHub Actions for standardized workflows.
 
+## Runner selection
+
+Org repos do not hardcode a runner label. Every job selects its runner through an
+organization-level Actions variable, so the whole org can be moved between the
+self-hosted ARC pool and GitHub-hosted runners without touching a single repo.
+
+```yaml
+jobs:
+  build:
+    runs-on: ${{ vars.RUNNER_SMALL || 'ubuntu-latest' }}
+```
+
+| Variable | ARC value | Backing scale set |
+|---|---|---|
+| `RUNNER_SMALL` | `arc-small` | `arc-runner-small` (max 6, 1 CPU / 1Gi) |
+| `RUNNER_MEDIUM` | `arc-medium` | `arc-runner-medium` (max 3, 2 CPU / 4Gi) |
+
+Scale sets are defined in `qtsone/cloud-1` (`gitops/org/projects/ci.yaml`).
+`arc-large` exists there but no workflow currently targets it, so it has no variable.
+
+**Why the `||` fallback.** `runs-on` accepts only the `github`, `needs`, `strategy`,
+`matrix`, `vars` and `inputs` contexts. An undefined variable resolves to an empty
+string, and an empty `runs-on` is a workflow *configuration* error — every job in the
+repo goes red with an error that does not name the missing variable. The fallback
+converts that into a job that merely runs somewhere else, and makes the behaviour for
+fork PRs (where variable availability is not guaranteed) explicit rather than fatal.
+
+**Switching the whole org.** Requires `admin:org`.
+
+```sh
+gh api -X PATCH /orgs/qtsone/actions/variables/RUNNER_SMALL  -f value=ubuntu-latest
+gh api -X PATCH /orgs/qtsone/actions/variables/RUNNER_MEDIUM -f value=ubuntu-latest
+```
+
+Substitute `arc-small` / `arc-medium` to move back. The change takes effect on the next
+workflow run; runs already queued or in flight keep the value they started with.
+
+> Org-hosted runners are billed for private repos, and the ARC image
+> (`ghcr.io/qtsone/runner`) pre-bakes Node, Python, uv, buf and bun into the tool cache.
+> On `ubuntu-latest` the `setup-*` actions re-download those instead of hitting the
+> baked cache, so setup steps get slower even though the runners themselves are larger.
+
 ## Available Actions
 
 ### Dynamic Delivery Contract Matrix
