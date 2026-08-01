@@ -7,15 +7,22 @@ on:
     branches: [main]
 
 jobs:
-  probe:
-    runs-on: ${{ github.event.repository.custom_properties.GHA_RUNNER_TYPE == 'PRIVATE' && 'arc-small' || 'ubuntu-latest' }}
+  context:
+    runs-on: ubuntu-latest
     steps:
-      - name: Dump custom properties from the github context
-        run: |
+      - run: |
           echo "event=${{ github.event_name }}"
           echo "TYPE=[${{ github.event.repository.custom_properties.GHA_RUNNER_TYPE }}]"
           echo "SIZE=[${{ github.event.repository.custom_properties.GHA_RUNNER_SIZE }}]"
-          echo "--- toJSON(custom_properties) ---"
-          cat <<'EOF'
-          ${{ toJSON(github.event.repository.custom_properties) }}
-          EOF
+
+  arc-exact-case:
+    runs-on: arc-small
+    timeout-minutes: 3
+    steps:
+      - run: echo "exact-case label matched"
+
+  arc-upper-case:
+    runs-on: ${{ format('arc-{0}', github.event.repository.custom_properties.GHA_RUNNER_SIZE) }}
+    timeout-minutes: 3
+    steps:
+      - run: echo "UPPERCASE label matched -> label matching is case-insensitive"
