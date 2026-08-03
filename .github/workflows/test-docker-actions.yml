@@ -13,6 +13,12 @@ on:
       - 'tests/scripts/install_yq.sh'
       - '.github/workflows/test-docker-actions.yml'
 
+# Declared once at the top rather than per job: nothing here needs a token — the jobs
+# read the checkout, run shell fixtures and lint YAML — and a workflow-level default means
+# a job added later cannot quietly inherit write access it was never meant to have.
+permissions:
+  contents: read
+
 jobs:
   test-script-behavior:
     name: Validate script behavior contracts
