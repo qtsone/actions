@@ -3,10 +3,15 @@
 # Republish an image the registry already holds under a new set of tags, using a
 # registry-side manifest copy. No layer is transferred and no build runs.
 #
-# Safe because the caller names the content: content-tag is a digest of the sources that
-# reach the image, so a hit means the bytes are the ones this build would have produced.
-# A miss reports promoted=false and the caller falls back to building, which makes the
-# worst case identical to not using this action at all.
+# The caller names the source, so this is only as safe as the source tag's meaning. Used
+# with a content id, a hit means the *tracked git content* matches — not that the bytes
+# are identical, because build-args and floating base images do not reach that id unless
+# the caller folded them in (see git/content-id `extra`).
+#
+# A source that is absent reports promoted=false and exits 0 so the caller can fall back
+# to building. Every other failure — auth, rate limit, network, a registry 5xx — is a hard
+# error, because reporting those as "never built" would hide a broken registry behind a
+# silent full rebuild on every run.
 #
 # Annotations exist because a promoted image keeps the labels it was built with — a
 # release published from a PR build carries that PR's version label. An OCI annotation on
@@ -14,26 +19,37 @@
 
 set -euo pipefail
 
-image="${REGISTRY}/${IMAGE_NAME}"
-src="${image}:${CONTENT_TAG}"
+output_file="${GITHUB_OUTPUT:-/dev/stdout}"
 
-if ! docker buildx imagetools inspect "${src}" >/dev/null 2>&1; then
-  echo "promoted=false" >> "${GITHUB_OUTPUT}"
-  echo "miss: ${src} is not in the registry" >&2
-  exit 0
+image="${REGISTRY}/${IMAGE_NAME}"
+src="${image}:${SOURCE_TAG}"
+
+if ! inspect_error="$(docker buildx imagetools inspect "${src}" 2>&1 >/dev/null)"; then
+  case "${inspect_error}" in
+    *"not found"*|*"NAME_UNKNOWN"*|*"MANIFEST_UNKNOWN"*|*"manifest unknown"*|*"no such manifest"*)
+      echo "promoted=false" >> "${output_file}"
+      echo "miss: ${src} is not in the registry" >&2
+      exit 0
+      ;;
+  esac
+  printf 'ERROR: cannot read %s: %s\n' "${src}" "${inspect_error}" >&2
+  exit 1
 fi
 
+first_tag=""
 args=()
 while IFS= read -r tag; do
   [ -n "${tag}" ] || continue
   case "${tag}" in
-    *:*) args+=(--tag "${tag}") ;;
-    *)   args+=(--tag "${image}:${tag}") ;;
+    *:*) ;;
+    *) tag="${image}:${tag}" ;;
   esac
+  [ -n "${first_tag}" ] || first_tag="${tag}"
+  args+=(--tag "${tag}")
 done <<< "${TAGS}"
 
-if [ "${#args[@]}" -eq 0 ]; then
-  echo "no tags given to promote ${src} to" >&2
+if [ -z "${first_tag}" ]; then
+  echo "ERROR: no tags given to promote ${src} to" >&2
   exit 1
 fi
 
@@ -44,13 +60,19 @@ done <<< "${ANNOTATIONS:-}"
 
 docker buildx imagetools create "${args[@]}" "${src}"
 
-digest="$(docker buildx imagetools inspect "${src}" --format '{{.Manifest.Digest}}' 2>/dev/null || true)"
+# Read back from a tag that was just created, not from the source. `imagetools create` is
+# a carbon copy only for an index source with no annotations; annotating rewrites the
+# index, and a single-platform source gets wrapped into one. Both give the new tags a
+# different digest than the source, and it is the new tags a deployment will pin.
+digest="$(docker buildx imagetools inspect "${first_tag}" --format '{{.Manifest.Digest}}')"
 {
   echo "promoted=true"
   echo "digest=${digest}"
-} >> "${GITHUB_OUTPUT}"
+} >> "${output_file}"
 
-echo "promoted ${src}" >&2
+echo "promoted ${src} -> ${first_tag} (${digest})" >&2
 if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
-  echo "- Promoted \`${src}\` — no rebuild" >> "${GITHUB_STEP_SUMMARY}"
+  # Neutral wording: the same script also publishes a content tag from a build that just
+  # ran, where "no rebuild" would be a lie.
+  echo "- Registry copy: \`${src}\` -> \`${first_tag}\`" >> "${GITHUB_STEP_SUMMARY}"
 fi

@@ -76,10 +76,10 @@ inputs:
     default: "true"
   content-tag:
     description: >-
-      Tag naming the content this build would produce, e.g. src-<digest>. When the
-      registry already holds it the image is re-tagged to the PR head instead of
-      rebuilt, and a fresh build publishes it so later runs can do the same. Empty
-      disables both.
+      Tag naming the content this build would produce, e.g. src-<digest> from
+      git/content-id. When the registry already holds it the image is re-tagged to the PR
+      head instead of rebuilt; a fresh build publishes it once the scan and stale-head
+      checks pass, so later runs can do the same. Empty disables both.
     required: false
     default: ""
 
@@ -187,29 +187,29 @@ runs:
         password: ${{ inputs.github-token }}
 
     # Same registry-side manifest copy as docker/promote, sharing its script so the two
-    # cannot drift. Only reachable when the caller supplies a content-tag it computes
-    # deterministically from the sources that enter the image, so a hit means identical
-    # bytes. A miss falls through to the build below.
+    # cannot drift. continue-on-error because only a registry miss exits 0: without it a
+    # rate limit or a 5xx would fail the action outright instead of falling through to
+    # the build, which is the fallback the content-tag contract promises.
     - name: Promote image already built for this content
       id: promote
       if: ${{ inputs.content-tag != '' && steps.context.outputs.eligible_for_preview == 'true' && inputs.preview-push-enabled == 'true' }}
+      continue-on-error: true
       shell: bash
       env:
         REGISTRY: ${{ inputs.registry }}
         IMAGE_NAME: ${{ inputs.image-name }}
-        CONTENT_TAG: ${{ inputs.content-tag }}
+        SOURCE_TAG: ${{ inputs.content-tag }}
         TAGS: ${{ steps.context.outputs.tag }}
         ANNOTATIONS: ""
       run: ${{ github.action_path }}/../promote/scripts/promote.sh
 
-    # One build, pushed straight from BuildKit. The previous shape built twice — once
-    # with load:true so Trivy could read it from the daemon, which spent 52s writing an
-    # OCI tarball, then again to push. Trivy reads the pushed reference instead.
+    # One build, pushed straight from BuildKit, so the image never has to be exported to
+    # the local daemon and rebuilt to publish it. Trivy reads the pushed reference.
     - name: Build and push Docker image
       id: build-image
       env:
         # The post step uploads a build-summary artifact via `buildx history export
-        # --finalize`. Four of them cost 65s of teardown on a two-image job.
+        # --finalize`, which costs tens of seconds per build and is rarely opened.
         DOCKER_BUILD_SUMMARY: "false"
       if: ${{ steps.promote.outputs.promoted != 'true' && steps.context.outputs.eligible_for_preview == 'true' && inputs.preview-push-enabled == 'true' }}
       uses: docker/build-push-action@v6
@@ -217,7 +217,7 @@ runs:
         context: ${{ inputs.context }}
         file: ${{ inputs.dockerfile-path }}
         push: true
-        tags: ${{ inputs.content-tag != '' && format('{0},{1}:{2}', steps.context.outputs.image_tag, steps.context.outputs.image, inputs.content-tag) || steps.context.outputs.image_tag }}
+        tags: ${{ steps.context.outputs.image_tag }}
         build-args: |
           ${{ inputs.build-args }}
 
@@ -227,8 +227,6 @@ runs:
     - name: Build Docker image (no registry access)
       id: build-image-local
       env:
-        # The post step uploads a build-summary artifact via `buildx history export
-        # --finalize`. Four of them cost 65s of teardown on a two-image job.
         DOCKER_BUILD_SUMMARY: "false"
       if: ${{ steps.context.outputs.eligible_for_preview != 'true' || inputs.preview-push-enabled != 'true' }}
       uses: docker/build-push-action@v6
@@ -276,6 +274,25 @@ runs:
             core.warning(`stale_pr_head: expected ${expectedSha}, got ${liveSha}`)
           }
 
+    # Published here rather than as a second tag on the build so that an image which fails
+    # a required scan, or was built from a head the PR has since moved past, never becomes
+    # a promotion source for a later run. The head-SHA tag is immutable and names exactly
+    # what was built; the content tag is mutable and is what future builds trust.
+    # continue-on-error because the image is already pushed and everything else has
+    # passed — a registry hiccup here should cost a rebuild next time, not this run.
+    - name: Publish content tag for later promotion
+      id: publish-content-tag
+      if: ${{ inputs.content-tag != '' && steps.build-image.outcome == 'success' && (inputs.scan-required != 'true' || steps.trivy.outcome == 'success') && steps.stale-sha-guard.outputs.stale_pr_head != 'true' }}
+      continue-on-error: true
+      shell: bash
+      env:
+        REGISTRY: ${{ inputs.registry }}
+        IMAGE_NAME: ${{ inputs.image-name }}
+        SOURCE_TAG: ${{ steps.context.outputs.tag }}
+        TAGS: ${{ inputs.content-tag }}
+        ANNOTATIONS: ""
+      run: ${{ github.action_path }}/../promote/scripts/promote.sh
+
     - name: Finalize outputs and readiness gate
       id: finalize
       if: always()
@@ -285,7 +302,9 @@ runs:
         PREVIEW_PUSH_ENABLED: ${{ inputs.preview-push-enabled }}
         READY_LABEL_ENABLED: ${{ inputs.ready-label-enabled }}
         SCAN_REQUIRED: ${{ inputs.scan-required }}
-        BUILD_OUTCOME: ${{ steps.promote.outputs.promoted == 'true' && 'success' || (steps.build-image.outcome || steps.build-image-local.outcome) }}
+        # A skipped step's outcome is the string 'skipped', which is truthy, so `||` never
+        # falls through on its own — only one of these two builds ever runs.
+        BUILD_OUTCOME: ${{ steps.promote.outputs.promoted == 'true' && 'success' || (steps.build-image.outcome != 'skipped' && steps.build-image.outcome || steps.build-image-local.outcome) }}
         TRIVY_OUTCOME: ${{ steps.trivy.outcome }}
         HADOLINT_OUTCOME: ${{ steps.hadolint.outcome }}
         PUSH_OUTCOME: ${{ steps.promote.outputs.promoted == 'true' && 'success' || steps.build-image.outcome }}
@@ -294,75 +313,9 @@ runs:
         IMAGE: ${{ steps.context.outputs.image }}
         TAG: ${{ steps.context.outputs.tag }}
         IMAGE_TAG: ${{ steps.context.outputs.image_tag }}
-        PUSH_DIGEST: ${{ steps.build-image.outputs.digest }}
-      run: |
-        set -euo pipefail
-
-        scan_required="${SCAN_REQUIRED}"
-        scan_pass="true"
-        if [ "${TRIVY_OUTCOME}" != "success" ]; then
-          scan_pass="false"
-        fi
-
-        stale_pr_head="${STALE_PR_HEAD}"
-        if [ -z "${stale_pr_head}" ]; then
-          stale_pr_head="false"
-        fi
-
-        build_pass="false"
-        push_pass="false"
-
-        if [ "${BUILD_OUTCOME}" = "success" ]; then
-          build_pass="true"
-        fi
-
-        if [ "${PREVIEW_PUSH_ENABLED}" = "true" ]; then
-          if [ "${PUSH_OUTCOME}" = "success" ]; then
-            push_pass="true"
-          fi
-        else
-          push_pass="true"
-        fi
-
-        ready_allowed="false"
-        if [ "${ELIGIBLE}" = "true" ] && [ "${READY_LABEL_ENABLED}" = "true" ] && [ "${build_pass}" = "true" ] && [ "${push_pass}" = "true" ] && [ "${stale_pr_head}" != "true" ]; then
-          if [ "${scan_required}" = "true" ]; then
-            if [ "${scan_pass}" = "true" ]; then
-              ready_allowed="true"
-            fi
-          else
-            ready_allowed="true"
-          fi
-        fi
-
-        tags="${IMAGE_TAG}"
-        digest="${PUSH_DIGEST}"
-        image_digest=""
-        if [ -n "${digest}" ]; then
-          image_digest="${IMAGE}@${digest}"
-        fi
-
-        {
-          echo "image=${IMAGE}"
-          echo "tag=${TAG}"
-          echo "image-tag=${IMAGE_TAG}"
-          echo "digest=${digest}"
-          echo "image-digest=${image_digest}"
-          echo "ready_allowed=${ready_allowed}"
-          echo "stale_pr_head=${stale_pr_head}"
-          echo "tags<<EOF"
-          printf '%s\n' "${tags}"
-          echo "EOF"
-        } >> "${GITHUB_OUTPUT}"
-
-        {
-          echo "- Build outcome: ${BUILD_OUTCOME} (promoted=${PROMOTED:-false})"
-          echo "- Hadolint outcome: ${HADOLINT_OUTCOME}"
-          echo "- Scan outcome: ${TRIVY_OUTCOME} (scan_required=${scan_required})"
-          echo "- Push outcome: ${PUSH_OUTCOME:-skipped} (preview_push_enabled=${PREVIEW_PUSH_ENABLED})"
-          echo "- stale_pr_head: ${stale_pr_head}"
-          echo "- Ready gate result: ${ready_allowed}"
-        } >> "${GITHUB_STEP_SUMMARY}"
+        # A skipped step's *output* is genuinely empty, so this `||` does fall through.
+        PUSH_DIGEST: ${{ steps.promote.outputs.digest || steps.build-image.outputs.digest }}
+      run: ${{ github.action_path }}/scripts/finalize.sh
 
     - name: Add ready label after successful readiness gate
       id: add-ready-label

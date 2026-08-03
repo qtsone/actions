@@ -48,7 +48,9 @@ inputs:
     description: >-
       Newline-separated files to stage alongside kustomization.yaml, for values the caller
       rewrote to stay in step with this image bump. They land in the same commit so no
-      sync ever sees the two disagree.
+      sync ever sees the two disagree. Regular files inside the repository only —
+      directories are rejected, because this action pushes to the target branch
+      unreviewed.
     required: false
     default: ""
   commit-message:

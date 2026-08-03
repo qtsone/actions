@@ -74,7 +74,8 @@ inputs:
     description: >-
       Newline-separated tags to publish in addition to the derived ones, for content tags
       and other aliases that should be pushed by the same build rather than re-tagged
-      afterwards.
+      afterwards. Full references, e.g. ghcr.io/owner/repo:src-abc123 — unlike
+      docker/promote, a bare value is not prefixed with the image.
     required: false
     default: ""
   cache:
@@ -118,7 +119,9 @@ runs:
 
     - name: Build and push Docker image
       id: build-and-push
-      uses: docker/build-push-action@v5
+      # v6, not v5: DOCKER_BUILD_SUMMARY below is only honoured from v6.3.0, and on v5 the
+      # summary post step it disables does not exist to begin with.
+      uses: docker/build-push-action@v6
       env:
         # The post step uploads a build-summary artifact via `buildx history export
         # --finalize`, which costs tens of seconds per build and is rarely opened.
@@ -141,6 +144,7 @@ runs:
       shell: bash
       env:
         INPUT_TAGS: ${{ inputs.tags }}
+        EXTRA_TAGS: ${{ inputs.extra-tags }}
         META_TAGS: ${{ steps.meta.outputs.tags }}
         BUILD_DIGEST: ${{ steps.build-and-push.outputs.digest }}
       run: |
@@ -151,7 +155,13 @@ runs:
           normalized_tags="${META_TAGS}"
         fi
 
-        normalized_tags="$(printf '%s\n' "${normalized_tags}" | sed '/^\s*$/d')"
+        # Appended, not prepended: `tag` and `image` below are derived from the first
+        # entry, and an alias must not displace the canonical tag a caller hands on.
+        if [ -n "${EXTRA_TAGS}" ]; then
+          normalized_tags="$(printf '%s\n%s\n' "${normalized_tags}" "${EXTRA_TAGS}")"
+        fi
+
+        normalized_tags="$(printf '%s\n' "${normalized_tags}" | sed '/^[[:space:]]*$/d')"
         first_tag="$(printf '%s\n' "${normalized_tags}" | sed -n '1p')"
 
         image=""

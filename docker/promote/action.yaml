@@ -8,7 +8,8 @@ inputs:
     description: >-
       Tag naming the content to republish, e.g. src-<digest> from git/content-id. Absent
       from the registry means the content was never built, and the action reports
-      promoted=false rather than failing so the caller can build instead.
+      promoted=false rather than failing so the caller can build instead. Any other
+      registry error is a hard failure.
     required: true
   tags:
     description: "Newline-separated tags to publish. Bare values are prefixed with the image."
@@ -29,7 +30,9 @@ outputs:
     description: "true when the content was found and republished"
     value: ${{ steps.promote.outputs.promoted }}
   digest:
-    description: "Manifest digest of the promoted image, empty on a miss"
+    description: >-
+      Manifest digest of the first published tag, empty on a miss. Annotating or wrapping
+      a single-platform source changes the index, so this is not always the source digest.
     value: ${{ steps.promote.outputs.digest }}
 runs:
   using: "composite"
@@ -40,7 +43,7 @@ runs:
       env:
         REGISTRY: ${{ inputs.registry }}
         IMAGE_NAME: ${{ inputs.image-name }}
-        CONTENT_TAG: ${{ inputs.content-tag }}
+        SOURCE_TAG: ${{ inputs.content-tag }}
         TAGS: ${{ inputs.tags }}
         ANNOTATIONS: ${{ inputs.annotations }}
       run: ${{ github.action_path }}/scripts/promote.sh

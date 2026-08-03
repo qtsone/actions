@@ -118,6 +118,109 @@ run_implemented_checks() {
   pass "Update-image implementation includes required contract primitives"
 }
 
+run_extra_paths_checks() {
+  local tempdir worker rc output
+  tempdir="$(setup_git_fixtures)"
+  TEMP_DIR_TO_CLEANUP="$tempdir"
+  worker="$tempdir/worker"
+
+  git -C "$worker" config user.email "contracts@example.invalid"
+  git -C "$worker" config user.name "contract-test"
+
+  # The base fixture lists deployment.yaml as a resource, and update_image.sh runs
+  # `kustomize build` as a pre-commit validation, so the overlay has to actually resolve.
+  cat > "$worker/deployment.yaml" <<'YAML'
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: forge
+spec:
+  selector:
+    matchLabels:
+      app: forge
+  template:
+    metadata:
+      labels:
+        app: forge
+    spec:
+      containers:
+        - name: forge
+          image: ghcr.io/qtsone/forge
+YAML
+  printf 'version: old\n' > "$worker/values.yaml"
+  git -C "$worker" add deployment.yaml values.yaml
+  git -C "$worker" commit -qm "seed deployment and values"
+  git -C "$worker" push -q origin HEAD:main
+
+  run_update() {
+    ( cd "$worker" && env \
+        OVERLAY_PATH=. \
+        IMAGE_NAME=ghcr.io/qtsone/forge \
+        TARGET_BRANCH=main \
+        COMMIT=true \
+        COMMIT_USER_NAME=contract-test \
+        COMMIT_USER_EMAIL=contracts@example.invalid \
+        "$@" \
+        bash "$UPDATE_SCRIPT" 2>&1 )
+  }
+
+  # The image bump and whatever tracks it must land together: two commits would mean two
+  # Argo syncs and a window where the overlay and the companion file disagree.
+  printf 'version: new\n' > "$worker/values.yaml"
+  output="$(run_update TAG=sha-20260515abcdef0 EXTRA_PATHS=values.yaml)" || fail "extra-paths run failed: $output"
+  local committed
+  committed="$(git -C "$worker" show --name-only --format= HEAD)"
+  assert_contains "$committed" "kustomization.yaml" "extra-paths run commits the kustomization"
+  assert_contains "$committed" "values.yaml" "extra-paths land in the same commit as the image bump"
+
+  # The regression that matters: with the kustomization already at the target, an early
+  # no-op return would drop the companion change on the floor and report changed=false.
+  printf 'version: newer\n' > "$worker/values.yaml"
+  output="$(run_update TAG=sha-20260515abcdef0 EXTRA_PATHS=values.yaml)" || fail "second extra-paths run failed: $output"
+  committed="$(git -C "$worker" show --name-only --format= HEAD)"
+  assert_contains "$committed" "values.yaml" "extra-paths are staged even when the kustomization is already at the target"
+  [[ "$(git -C "$worker" show HEAD:values.yaml)" == "version: newer" ]] \
+    || fail "companion file content was not committed"
+  pass "Companion change reaches the remote when only it changed"
+
+  # Nothing to do at all must still be a no-op rather than an empty commit.
+  local before_head
+  before_head="$(git -C "$worker" rev-parse HEAD)"
+  output="$(run_update TAG=sha-20260515abcdef0 EXTRA_PATHS=values.yaml)" || fail "no-op run failed: $output"
+  [[ "$(git -C "$worker" rev-parse HEAD)" == "$before_head" ]] \
+    || fail "Unchanged inputs must not create a commit"
+  pass "No commit is created when neither the image nor the extra paths changed"
+
+  # This action pushes to the target branch unreviewed, so a directory — `.` being the
+  # most plausible misreading of "files to stage" — must be refused rather than sweeping
+  # in whatever an earlier workflow step left in the workspace.
+  set +e
+  output="$(run_update TAG=sha-newtag00000000 EXTRA_PATHS=.)"
+  rc=$?
+  set -e
+  [[ $rc -ne 0 ]] || fail "A directory in extra-paths must be rejected"
+  assert_contains "$output" "not a regular file" "Directory in extra-paths reports why it was rejected"
+
+  set +e
+  output="$(run_update TAG=sha-newtag00000000 EXTRA_PATHS="$tempdir/outside.txt")"
+  rc=$?
+  set -e
+  [[ $rc -ne 0 ]] || fail "A missing extra-paths entry must be rejected"
+
+  printf 'outside\n' > "$tempdir/outside.txt"
+  set +e
+  output="$(run_update TAG=sha-newtag00000000 EXTRA_PATHS="$tempdir/outside.txt")"
+  rc=$?
+  set -e
+  [[ $rc -ne 0 ]] || fail "An extra-paths entry outside the repository must be rejected"
+  assert_contains "$output" "outside the repository" "Out-of-repo extra-paths reports why it was rejected"
+
+  pass "extra-paths staging and boundary contracts hold"
+
+  TEMP_DIR_TO_CLEANUP=""
+  rm -rf "$tempdir"
+}
+
 main() {
   if [[ ! -f "$UPDATE_SCRIPT" ]]; then
     run_pending_contract_mode
@@ -126,6 +229,7 @@ main() {
 
   validate_fixture_contracts
   run_implemented_checks
+  run_extra_paths_checks
 }
 
 main "$@"
