@@ -11,8 +11,13 @@ A reusable and customizable GitHub Action for standardized building and pushing 
 - Sets up Docker buildx.
 - Logs in to GitHub Container Registry.
 - Generates Docker metadata for tagging.
-- Builds and pushes Docker image to GitHub Packages with caching.
+- Builds and pushes Docker image to GitHub Packages via `docker/build-push-action@v6`, with an opt-out registry layer cache.
 - Logs out from GitHub Container Registry.
+
+The build step runs with `DOCKER_BUILD_SUMMARY=false`, which suppresses the post step that
+exports a build-summary artifact — tens of seconds per build, rarely opened. That variable
+is only honoured from `docker/build-push-action` v6.3.0, which is why the action is pinned
+to `@v6` rather than `@v5`.
 
 ## Usage
 
@@ -35,6 +40,51 @@ A reusable and customizable GitHub Action for standardized building and pushing 
 | `tag-prefix-latest` | Add a prefix to the 'latest' Docker image tag.                              | `false`    |
 | `tag-suffix`        | Add a suffix to the generated Docker image tag.                             | `''`       |
 | `tag-suffix-latest` | Add a suffix to the 'latest' Docker image tag.                              | `false`    |
+| `extra-tags`        | Newline-separated extra references to push alongside the derived tags. Full references only. | `''`       |
+| `cache`             | Read and write a registry layer cache at `<registry>/<image-name>:cache`.   | `true`     |
+
+#### `extra-tags`
+
+Aliases pushed by the same build instead of re-tagged afterwards — a content tag from
+`git/content-id`, a channel tag, anything a later run should be able to find. Entries must
+be full references including the registry and image; unlike `docker/promote`'s `tags`
+input, a bare value is **not** prefixed with the image and will be pushed verbatim.
+
+```yaml
+- id: content
+  uses: qtsone/actions/git/content-id@main
+- uses: qtsone/actions/docker/build@main
+  with:
+    image-name: qtsone/app
+    github-token: ${{ secrets.GITHUB_TOKEN }}
+    extra-tags: |
+      ghcr.io/qtsone/app:src-${{ steps.content.outputs.id }}
+```
+
+They are appended to the tag list, never prepended, so an alias cannot displace the
+canonical tag: `image`, `tag`, and `image-tag` still come from the first tag the metadata
+step derived. Extra tags do show up in the `tags` output.
+
+#### `cache`
+
+A registry layer cache only pays when the step it lets you skip costs more than moving the
+layer that step produced. Pulling a cached layer is a network transfer on every build, and
+`mode=max` pushes the intermediate layers back on every build too.
+
+Turn it off when the image has large layers guarding a cheap step — a few hundred MB of
+`node_modules` in front of a fast `npm ci`, or a vendored dependency tree that restores
+quicker than it downloads. Keep it on for the reverse: a slow compile, a long
+`apt-get`/`pip` resolve, anything whose output is small relative to the time it took.
+
+```yaml
+- uses: qtsone/actions/docker/build@main
+  with:
+    image-name: qtsone/app
+    github-token: ${{ secrets.GITHUB_TOKEN }}
+    cache: false
+```
+
+Measure before assuming — the answer depends on the image, not on the action.
 
 ### Outputs
 
