@@ -116,7 +116,14 @@ main() {
   fi
 
   if bool_true "${dry_run}"; then
-    printf 'Dry-run: kustomization changed=%s for %s; extra-paths not staged\n' "${kustomization_changed}" "${target_ref}"
+    # Reachable with an unchanged kustomization only when extra-paths kept us past the
+    # no-op return above, and dry-run never stages those — so say so rather than claiming
+    # an update that did not happen.
+    if bool_true "${kustomization_changed}"; then
+      printf 'Dry-run: updated image to %s without commit/push\n' "${target_ref}"
+    else
+      printf 'Dry-run: kustomization already at %s; extra-paths are not staged in dry-run\n' "${target_ref}"
+    fi
     if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
       {
         echo "changed=${kustomization_changed}"
@@ -127,7 +134,11 @@ main() {
   fi
 
   if ! bool_true "${commit}"; then
-    printf 'Commit disabled: kustomization changed=%s for %s\n' "${kustomization_changed}" "${target_ref}"
+    if bool_true "${kustomization_changed}"; then
+      printf 'Commit disabled: updated image to %s without commit/push\n' "${target_ref}"
+    else
+      printf 'Commit disabled: kustomization already at %s; extra-paths are not staged\n' "${target_ref}"
+    fi
     if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
       {
         echo "changed=${kustomization_changed}"

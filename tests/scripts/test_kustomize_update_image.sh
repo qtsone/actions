@@ -183,6 +183,24 @@ YAML
     || fail "companion file content was not committed"
   pass "Companion change reaches the remote when only it changed"
 
+  # These two lines are a published contract other workflows grep for, so the wording is
+  # pinned here rather than only where it is consumed.
+  printf 'version: dryrun\n' > "$worker/values.yaml"
+  output="$(run_update TAG=sha-drrun0000000000 EXTRA_PATHS=values.yaml DRY_RUN=true)" || fail "dry-run failed: $output"
+  assert_contains "$output" "Dry-run: updated image to ghcr.io/qtsone/forge:sha-drrun0000000000 without commit/push" \
+    "dry-run reports the update in the established wording"
+  git -C "$worker" checkout -- kustomization.yaml
+
+  output="$(run_update TAG=sha-20260515abcdef0 EXTRA_PATHS=values.yaml DRY_RUN=true)" || fail "dry-run no-change failed: $output"
+  assert_contains "$output" "extra-paths are not staged in dry-run" \
+    "dry-run says plainly that extra-paths are not staged when the image is unchanged"
+
+  output="$(run_update TAG=sha-nocommit00000000 EXTRA_PATHS=values.yaml COMMIT=false)" || fail "commit=false failed: $output"
+  assert_contains "$output" "Commit disabled: updated image to ghcr.io/qtsone/forge:sha-nocommit00000000 without commit/push" \
+    "commit=false reports the update in the established wording"
+  git -C "$worker" checkout -- kustomization.yaml
+  git -C "$worker" checkout -- values.yaml
+
   # Nothing to do at all must still be a no-op rather than an empty commit.
   local before_head
   before_head="$(git -C "$worker" rev-parse HEAD)"
