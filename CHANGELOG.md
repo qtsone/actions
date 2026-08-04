@@ -1,3 +1,16 @@
+## [1.3.7](https://github.com/qtsone/actions/compare/v1.3.6...v1.3.7) (2026-08-04)
+
+
+### Bug Fixes
+
+* **docker:** correct content-addressing and readiness wiring in the preview path ([fc4c38a](https://github.com/qtsone/actions/commit/fc4c38afd95c151bc8005596ee8b6bcb7a91d31e))
+* **kustomize:** keep the established dry-run and commit-disabled wording ([5199a7a](https://github.com/qtsone/actions/commit/5199a7ae3fc6b1502316ce3c65487290fd6bb08d))
+
+
+### Performance Improvements
+
+* **docker:** build the preview image once, and let a caller promote it ([686fcc2](https://github.com/qtsone/actions/commit/686fcc278732a25684306203eb357455ae883eda))
+
 ## [1.3.6](https://github.com/qtsone/actions/compare/v1.3.5...v1.3.6) (2026-05-23)
 
 
