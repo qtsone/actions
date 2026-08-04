@@ -1,0 +1,57 @@
+name: "Git Content Id"
+description: "Digest the tracked paths that can reach a build artifact, for content-addressed republishing"
+inputs:
+  target:
+    description: "Key to read from the config file. Requires config to name a file that exists."
+    required: false
+    default: ""
+  config:
+    description: >-
+      JSON file mapping a target name to {include: [...]} | {exclude: [...]} and an
+      optional {extra: [...]}. Keeps the path lists in one reviewable place when several
+      workflows need the same id.
+    required: false
+    default: ".github/image-content.json"
+  include:
+    description: >-
+      Newline-separated paths to hash. Mutually exclusive with exclude. An entry that
+      matches no tracked path is an error, not a silent omission.
+    required: false
+    default: ""
+  exclude:
+    description: >-
+      Newline-separated paths to skip; everything else tracked is hashed. Matched as whole
+      path components, so `docs` skips `docs` and `docs/**` but not `docker/`. Safer than
+      include, because a newly added path is covered by default.
+    required: false
+    default: ""
+  extra:
+    description: >-
+      Newline-separated arbitrary strings folded into the digest. The id otherwise covers
+      tracked git content only, so anything else that changes the image the caller would
+      build — build-args, the resolved digest of a floating base image, a toolchain
+      version — belongs here or a hit will republish an image that no longer matches.
+    required: false
+    default: ""
+  ref:
+    description: "Git ref to read the tree from"
+    required: false
+    default: "HEAD"
+outputs:
+  id:
+    description: "16-character digest of the selected tracked content"
+    value: ${{ steps.compute.outputs.id }}
+runs:
+  using: "composite"
+  steps:
+    - name: Compute content id
+      id: compute
+      shell: bash
+      env:
+        TARGET: ${{ inputs.target }}
+        CONFIG: ${{ inputs.config }}
+        INCLUDE: ${{ inputs.include }}
+        EXCLUDE: ${{ inputs.exclude }}
+        EXTRA: ${{ inputs.extra }}
+        REF: ${{ inputs.ref }}
+      run: ${{ github.action_path }}/scripts/content_id.sh

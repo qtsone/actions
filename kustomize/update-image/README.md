@@ -27,6 +27,7 @@ Reusable composite action that updates an app-owned production kustomize overlay
 | `dry-run` | no | `false` | Validate and mutate working tree only; no commit/push. |
 | `skip-install` | no | `false` | Skip bundled kustomize installer. |
 | `kustomize-version` | no | `v5.4.3` | Pinned installer version. |
+| `extra-paths` | no | `""` | Newline-separated files to stage into the same commit as the image bump. Regular files inside the repository only; directories are rejected. See [Extra paths](#extra-paths). |
 | `commit-message` | no | `chore(deploy): update production image [skip ci]` | Safe non-release-triggering default writeback message. |
 | `commit-user-name` | no | `github-actions[bot]` | Git commit author name used when `commit: true`. |
 | `commit-user-email` | no | `github-actions[bot]@users.noreply.github.com` | Git commit author email used when `commit: true`. |
@@ -37,7 +38,7 @@ Reusable composite action that updates an app-owned production kustomize overlay
 
 | Output | Description |
 | --- | --- |
-| `changed` | `true` when `kustomization.yaml` changed. |
+| `changed` | On the commit path, `true` when a commit was created — from `kustomization.yaml`, from an `extra-paths` entry, or both. Under `dry-run: true` or `commit: false` it reports whether `kustomization.yaml` itself changed, because nothing is staged in those modes. |
 | `target-ref` | Resolved target image ref applied by the action. |
 
 ## Simple mode (default tag pin)
@@ -70,6 +71,34 @@ Reusable composite action that updates an app-owned production kustomize overlay
     new-ref: ghcr.io/qtsone/my-app@sha256:abcd1234...
 ```
 
+## Extra paths
+
+Some repositories keep a value that has to move with the image: a chart `appVersion`, a generated env file, a manifest that repeats the tag. That value and the overlay bump must reach the target branch in one commit. Two commits are two syncs, and between them a GitOps controller can observe the overlay and the file it tracks disagreeing. `extra-paths` stages files the caller already rewrote so they land in the same commit.
+
+```yaml
+- name: Render the version file
+  run: printf 'APP_VERSION=1.2.3\n' > gitops/services/my-app/environments/production/version.env
+
+- uses: qtsone/actions/kustomize/update-image@main
+  with:
+    overlay-path: gitops/services/my-app/environments/production
+    image-name: ghcr.io/qtsone/my-app
+    tag: 1.2.3
+    extra-paths: |
+      gitops/services/my-app/environments/production/version.env
+```
+
+Constraints, checked entry by entry before any commit or push:
+
+- Each entry must be an existing regular file. A directory is rejected — `.` being the most plausible misreading. This action commits and pushes to `target-branch` unreviewed, so a directory entry would sweep whatever an earlier step happened to leave in the workspace into that commit.
+- Each entry must resolve to a path inside the repository; anything outside it is rejected.
+- Entries are resolved relative to the step's working directory, and blank lines are ignored.
+- The action only stages what it is given. Writing the files is the caller's job.
+
+A rejected entry fails the step. The overlay file has already been rewritten in the working tree at that point, but nothing has been committed or pushed.
+
+`extra-paths` is only staged on the commit path. Under `dry-run: true` or `commit: false` the entries are neither validated nor staged, and the reported `changed` covers `kustomization.yaml` alone.
+
 ## Dry-run and skip-install
 
 ```yaml
@@ -85,7 +114,8 @@ Reusable composite action that updates an app-owned production kustomize overlay
 Behavior notes:
 
 - Always runs `kustomize build <overlay-path>` before any commit/push.
-- No-op updates exit successfully and do not create commits.
+- Without `extra-paths`, an overlay already at the target image is a no-op: no commit, `changed=false`, exit `0`.
+- With `extra-paths`, an overlay already at the target image is not by itself a no-op. If a listed file differs from `HEAD` the commit is still made, so a companion value the caller rewrote is not stranded by a redundant image bump. The staged diff is the authority: when nothing is staged at all, the run exits successfully with `changed=false` and no commit.
 - When `commit: true`, the action configures local repository commit identity from `commit-user-name`/`commit-user-email` before `git commit`.
 - Push conflicts fail explicitly so callers can retry/rebase.
 

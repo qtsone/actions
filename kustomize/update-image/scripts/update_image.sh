@@ -27,9 +27,9 @@ main() {
   require_cmd git
   require_cmd kustomize
 
-  local overlay_path overlay_path_abs image_name new_name tag digest new_ref target_branch commit dry_run commit_message
+  local overlay_path overlay_path_abs extra_paths image_name new_name tag digest new_ref target_branch commit dry_run commit_message
   local commit_user_name commit_user_email
-  local mode_count image_spec before_file after_file changed target_ref
+  local mode_count image_spec before_file after_file changed target_ref kustomization_changed
 
   before_file=""
   after_file=""
@@ -39,6 +39,7 @@ main() {
   trap cleanup_tempfiles EXIT
 
   overlay_path="$(trim "${OVERLAY_PATH:-}")"
+  extra_paths="${EXTRA_PATHS:-}"
   image_name="$(trim "${IMAGE_NAME:-}")"
   new_name="$(trim "${NEW_NAME:-}")"
   tag="$(trim "${TAG:-}")"
@@ -96,22 +97,36 @@ main() {
   )
 
   cp "${overlay_path_abs}/kustomization.yaml" "${after_file}"
+  kustomization_changed="true"
   if cmp -s "${before_file}" "${after_file}"; then
-    printf 'No-op: kustomization already at target image %s\n' "${target_ref}"
-    if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
-      {
-        echo "changed=false"
-        echo "target-ref=${target_ref}"
-      } >> "${GITHUB_OUTPUT}"
+    kustomization_changed="false"
+    # Only a short-circuit when there is nothing else to stage. With extra-paths the
+    # caller may have rewritten a companion file that still has to reach the same commit,
+    # so the staged diff below is the authority on whether this run is a no-op.
+    if [[ -z "${extra_paths}" ]]; then
+      printf 'No-op: kustomization already at target image %s\n' "${target_ref}"
+      if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+        {
+          echo "changed=false"
+          echo "target-ref=${target_ref}"
+        } >> "${GITHUB_OUTPUT}"
+      fi
+      exit 0
     fi
-    exit 0
   fi
 
   if bool_true "${dry_run}"; then
-    printf 'Dry-run: updated image to %s without commit/push\n' "${target_ref}"
+    # Reachable with an unchanged kustomization only when extra-paths kept us past the
+    # no-op return above, and dry-run never stages those — so say so rather than claiming
+    # an update that did not happen.
+    if bool_true "${kustomization_changed}"; then
+      printf 'Dry-run: updated image to %s without commit/push\n' "${target_ref}"
+    else
+      printf 'Dry-run: kustomization already at %s; extra-paths are not staged in dry-run\n' "${target_ref}"
+    fi
     if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
       {
-        echo "changed=true"
+        echo "changed=${kustomization_changed}"
         echo "target-ref=${target_ref}"
       } >> "${GITHUB_OUTPUT}"
     fi
@@ -119,10 +134,14 @@ main() {
   fi
 
   if ! bool_true "${commit}"; then
-    printf 'Commit disabled: updated image to %s without commit/push\n' "${target_ref}"
+    if bool_true "${kustomization_changed}"; then
+      printf 'Commit disabled: updated image to %s without commit/push\n' "${target_ref}"
+    else
+      printf 'Commit disabled: kustomization already at %s; extra-paths are not staged\n' "${target_ref}"
+    fi
     if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
       {
-        echo "changed=true"
+        echo "changed=${kustomization_changed}"
         echo "target-ref=${target_ref}"
       } >> "${GITHUB_OUTPUT}"
     fi
@@ -133,6 +152,28 @@ main() {
   [[ -n "${commit_user_email}" ]] || fail "commit-user-email is required when commit=true"
 
   git add "${overlay_path_abs}/kustomization.yaml"
+
+  # Files the caller rewrote to stay in step with this image bump, staged here so they
+  # land in the same commit. Two commits would mean two Argo syncs and a window where the
+  # overlay's image tag and whatever tracks it disagree.
+  if [[ -n "${extra_paths}" ]]; then
+    local repo_root extra extra_abs
+    repo_root="$(git rev-parse --show-toplevel)"
+    while IFS= read -r extra; do
+      extra="$(trim "${extra}")"
+      [[ -n "${extra}" ]] || continue
+      # Named files only, inside the repository. This action commits and pushes to the
+      # target branch unreviewed, so a caller passing a directory — `.` being the most
+      # plausible misreading — must not sweep in whatever an earlier step left behind.
+      [[ -f "${extra}" ]] || fail "extra-paths entry is not a regular file: ${extra}"
+      # -P on both sides: git reports a resolved path, so comparing it against a logical
+      # one puts every entry "outside the repository" wherever a parent is a symlink.
+      extra_abs="$(cd "$(dirname "${extra}")" && pwd -P)/$(basename "${extra}")"
+      [[ "${extra_abs}" == "${repo_root}/"* ]] || fail "extra-paths entry is outside the repository: ${extra}"
+      git add "${extra_abs}"
+    done <<< "${extra_paths}"
+  fi
+
   changed="$(git diff --cached --name-only)"
   if [[ -z "${changed}" ]]; then
     printf 'No-op after staging: no commit created\n'

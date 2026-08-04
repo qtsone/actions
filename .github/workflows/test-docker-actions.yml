@@ -5,15 +5,74 @@ on:
     paths:
       - 'docker/build/**'
       - 'docker/tests/**'
+      - 'docker/promote/**'
+      - 'git/content-id/**'
+      - 'tests/scripts/test_content_id.sh'
+      - 'tests/scripts/test_promote.sh'
+      - 'tests/scripts/test_finalize.sh'
+      - 'tests/scripts/install_yq.sh'
       - '.github/workflows/test-docker-actions.yml'
 
+# Declared once at the top rather than per job: nothing here needs a token — the jobs
+# read the checkout, run shell fixtures and lint YAML — and a workflow-level default means
+# a job added later cannot quietly inherit write access it was never meant to have.
+permissions:
+  contents: read
+
 jobs:
+  test-script-behavior:
+    name: Validate script behavior contracts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      # These run the scripts. Everything in the metadata jobs below only inspects YAML,
+      # which cannot tell whether an id moves when a file mode changes or whether a
+      # registry error is misreported as a cache miss.
+      - name: Execute content-id behaviour tests
+        run: bash tests/scripts/test_content_id.sh
+
+      - name: Execute promote behaviour tests
+        run: bash tests/scripts/test_promote.sh
+
+      - name: Execute readiness gate behaviour tests
+        run: bash tests/scripts/test_finalize.sh
+
+      - name: Lint action scripts
+        run: |
+          set -euo pipefail
+          shellcheck -s bash \
+            git/content-id/scripts/content_id.sh \
+            docker/promote/scripts/promote.sh \
+            docker/tests/scripts/finalize.sh \
+            tests/scripts/install_yq.sh \
+            tests/scripts/test_content_id.sh \
+            tests/scripts/test_promote.sh \
+            tests/scripts/test_finalize.sh
+
+      - name: Verify action scripts are executable
+        run: |
+          set -euo pipefail
+          for script in \
+            git/content-id/scripts/content_id.sh \
+            docker/promote/scripts/promote.sh \
+            docker/tests/scripts/finalize.sh; do
+            if [ ! -x "${script}" ]; then
+              echo "${script} is not executable; composite actions invoke it directly" >&2
+              exit 1
+            fi
+          done
+
   validate-docker-build-outputs:
     name: Validate docker/build declared outputs
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+
+      - name: Install yq
+        run: bash tests/scripts/install_yq.sh
 
       - name: Verify output keys exist in action metadata
         run: |
@@ -48,12 +107,48 @@ jobs:
             fi
           done
 
+      - name: Verify new inputs stay opt-out and default-compatible
+        run: |
+          set -euo pipefail
+
+          cache_default=$(yq -r '.inputs.cache.default // ""' docker/build/action.yaml)
+          extra_tags_default=$(yq -r '.inputs."extra-tags".default // ""' docker/build/action.yaml)
+          [ "${cache_default}" = "true" ]
+          [ -z "${extra_tags_default}" ]
+
+          # Both cache directions have to move together: reading a cache the build never
+          # writes silently stops the cache being refreshed.
+          cache_from=$(yq -r '.runs.steps[] | select(.id == "build-and-push") | .with."cache-from" // ""' docker/build/action.yaml)
+          cache_to=$(yq -r '.runs.steps[] | select(.id == "build-and-push") | .with."cache-to" // ""' docker/build/action.yaml)
+          printf '%s\n' "${cache_from}" | grep -q "inputs.cache == 'true'"
+          printf '%s\n' "${cache_to}" | grep -q "inputs.cache == 'true'"
+
+          # DOCKER_BUILD_SUMMARY is only honoured from build-push-action v6.3.0; on v5 the
+          # env var is inert and the post step it disables does not exist.
+          build_uses=$(yq -r '.runs.steps[] | select(.id == "build-and-push") | .uses // ""' docker/build/action.yaml)
+          summary_env=$(yq -r '.runs.steps[] | select(.id == "build-and-push") | .env.DOCKER_BUILD_SUMMARY // ""' docker/build/action.yaml)
+          if [ -n "${summary_env}" ]; then
+            case "${build_uses}" in
+              *"@v5"|*"@v4"|*"@v3")
+                echo "DOCKER_BUILD_SUMMARY is set but ${build_uses} does not honour it" >&2
+                exit 1
+                ;;
+            esac
+          fi
+
+          # extra-tags are pushed by the build, so a caller reading `tags` must see them.
+          derive_run=$(yq -r '.runs.steps[] | select(.id == "derive-outputs") | .run // ""' docker/build/action.yaml)
+          printf '%s\n' "${derive_run}" | grep -q 'EXTRA_TAGS'
+
   validate-docker-tests-contract:
     name: Validate docker/tests preview readiness contract
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+
+      - name: Install yq
+        run: bash tests/scripts/install_yq.sh
 
       - name: Verify required input defaults exist
         run: |
@@ -90,6 +185,7 @@ jobs:
             scan-required
             scan-severity-threshold
             pr-comment-enabled
+            content-tag
           )
 
           for key in "${required_inputs[@]}"; do
@@ -117,12 +213,14 @@ jobs:
         run: |
           set -euo pipefail
 
-          if yq -r '.runs.steps[]?.with.tags // ""' docker/tests/action.yaml | grep -q 'pr-'; then
+          with_tags=$(yq -r '.runs.steps[]?.with.tags // ""' docker/tests/action.yaml)
+          if printf '%s\n' "${with_tags}" | grep -q 'pr-'; then
             echo "Mutable pr-<number> tag detected in docker/tests action" >&2
             exit 1
           fi
 
-          if ! yq -r '.runs.steps[]?.run // ""' docker/tests/action.yaml | grep -q 'pr_head_sha'; then
+          run_blocks=$(yq -r '.runs.steps[]?.run // ""' docker/tests/action.yaml)
+          if ! printf '%s\n' "${run_blocks}" | grep -q 'pr_head_sha'; then
             echo "Expected script to derive immutable HEAD_SHA tag" >&2
             exit 1
           fi
@@ -132,16 +230,118 @@ jobs:
           set -euo pipefail
 
           derive_run=$(yq -r '.runs.steps[] | select(.id == "context") | .run // ""' docker/tests/action.yaml)
-          finalize_run=$(yq -r '.runs.steps[] | select(.id == "finalize") | .run // ""' docker/tests/action.yaml)
-          preview_if=$(yq -r '.runs.steps[] | select(.id == "preview-push") | .if // ""' docker/tests/action.yaml)
+          build_if=$(yq -r '.runs.steps[] | select(.id == "build-image") | .if // ""' docker/tests/action.yaml)
 
           printf '%s\n' "${derive_run}" | grep -q 'eligible_for_preview="true"'
           printf '%s\n' "${derive_run}" | grep -q 'if \[ -n "${pr_number}" \] && \[ "${same_repo_pr}" = "true" \]'
-          printf '%s\n' "${preview_if}" | grep -q "steps.context.outputs.eligible_for_preview == 'true'"
-          printf '%s\n' "${preview_if}" | grep -q "inputs.preview-push-enabled == 'true'"
-          printf '%s\n' "${preview_if}" | grep -q "steps.build-image.outcome == 'success'"
-          printf '%s\n' "${preview_if}" | grep -q "steps.stale-sha-guard.outputs.stale_pr_head != 'true'"
-          printf '%s\n' "${finalize_run}" | grep -q 'if \[ "${ELIGIBLE}" = "true" \] && \[ "${READY_LABEL_ENABLED}" = "true" \] && \[ "${build_pass}" = "true" \] && \[ "${push_pass}" = "true" \] && \[ "${stale_pr_head}" != "true" \]'
+          printf '%s\n' "${build_if}" | grep -q "steps.context.outputs.eligible_for_preview == 'true'"
+          printf '%s\n' "${build_if}" | grep -q "inputs.preview-push-enabled == 'true'"
+
+      - name: Verify the readiness gate is an executed script, not inline YAML
+        run: |
+          set -euo pipefail
+
+          # The gate decides whether an image reaches a cluster. Keeping it in a file is
+          # what lets tests/scripts/test_finalize.sh drive every branch of it; asserting
+          # the shape of an inline block only ever restates the YAML back to itself.
+          finalize_run=$(yq -r '.runs.steps[] | select(.id == "finalize") | .run // ""' docker/tests/action.yaml)
+          printf '%s\n' "${finalize_run}" | grep -q 'scripts/finalize.sh'
+
+          if [ ! -f tests/scripts/test_finalize.sh ]; then
+            echo "The readiness gate has no behavioural test" >&2
+            exit 1
+          fi
+
+          # Both builds feed the gate, and a skipped step's outcome is the truthy string
+          # 'skipped', so the fallback has to test for it rather than rely on `||`.
+          build_outcome=$(yq -r '.runs.steps[] | select(.id == "finalize") | .env.BUILD_OUTCOME // ""' docker/tests/action.yaml)
+          printf '%s\n' "${build_outcome}" | grep -q "steps.build-image.outcome != 'skipped'"
+          printf '%s\n' "${build_outcome}" | grep -q 'steps.build-image-local.outcome'
+
+          # A promote hit skips the build, so the digest has to come from promote or the
+          # action's digest outputs are empty exactly when the fast path fires.
+          push_digest=$(yq -r '.runs.steps[] | select(.id == "finalize") | .env.PUSH_DIGEST // ""' docker/tests/action.yaml)
+          printf '%s\n' "${push_digest}" | grep -q 'steps.promote.outputs.digest'
+          printf '%s\n' "${push_digest}" | grep -q 'steps.build-image.outputs.digest'
+
+      - name: Verify the image is built once and pushed from that build
+        run: |
+          set -euo pipefail
+
+          builds=$(yq -r '[.runs.steps[] | select(.uses // "" | test("docker/build-push-action"))] | length' docker/tests/action.yaml)
+          if [ "${builds}" -ne 2 ]; then
+            echo "Expected exactly two build steps (push path + no-registry fallback), got ${builds}" >&2
+            exit 1
+          fi
+
+          push_build=$(yq -r '.runs.steps[] | select(.id == "build-image") | .with.push' docker/tests/action.yaml)
+          local_build=$(yq -r '.runs.steps[] | select(.id == "build-image-local") | .with.load' docker/tests/action.yaml)
+          [ "${push_build}" = "true" ]
+          [ "${local_build}" = "true" ]
+
+          # The two paths are mutually exclusive, so no context ever builds twice.
+          local_if=$(yq -r '.runs.steps[] | select(.id == "build-image-local") | .if // ""' docker/tests/action.yaml)
+          printf '%s\n' "${local_if}" | grep -q "eligible_for_preview != 'true' || inputs.preview-push-enabled != 'true'"
+
+      - name: Verify docker/tests and docker/promote share one implementation
+        run: |
+          set -euo pipefail
+
+          # Two copies of "republish this image" would drift, and the copy that drifted
+          # would be the one deciding whether a release ships stale bytes.
+          for step_id in promote publish-content-tag; do
+            step_run=$(yq -r ".runs.steps[] | select(.id == \"${step_id}\") | .run // \"\"" docker/tests/action.yaml)
+            if ! printf '%s\n' "${step_run}" | grep -q 'promote/scripts/promote.sh'; then
+              echo "Step ${step_id} does not use the shared promote script" >&2
+              exit 1
+            fi
+          done
+
+      - name: Verify a promote failure falls back to building
+        run: |
+          set -euo pipefail
+
+          # Only a registry miss exits 0. Without continue-on-error a rate limit or a 5xx
+          # fails the whole action instead of falling through to the build, which is the
+          # fallback the content-tag contract promises.
+          promote_coe=$(yq -r '.runs.steps[] | select(.id == "promote") | ."continue-on-error" // false' docker/tests/action.yaml)
+          [ "${promote_coe}" = "true" ]
+
+          build_if=$(yq -r '.runs.steps[] | select(.id == "build-image") | .if // ""' docker/tests/action.yaml)
+          printf '%s\n' "${build_if}" | grep -q "steps.promote.outputs.promoted != 'true'"
+
+      - name: Verify the content tag is published only after the scan and stale checks
+        run: |
+          set -euo pipefail
+
+          # The head-SHA tag is immutable and names exactly what was built. The content tag
+          # is mutable and is what a later release trusts, so an image that failed a
+          # required scan or was built from a superseded head must never become one.
+          publish_if=$(yq -r '.runs.steps[] | select(.id == "publish-content-tag") | .if // ""' docker/tests/action.yaml)
+          printf '%s\n' "${publish_if}" | grep -q "inputs.content-tag != ''"
+          printf '%s\n' "${publish_if}" | grep -q "inputs.scan-required != 'true' || steps.trivy.outcome == 'success'"
+          printf '%s\n' "${publish_if}" | grep -q "steps.stale-sha-guard.outputs.stale_pr_head != 'true'"
+          printf '%s\n' "${publish_if}" | grep -q "steps.build-image.outcome == 'success'"
+
+          # ...which only holds if the build itself is not also publishing it.
+          build_tags=$(yq -r '.runs.steps[] | select(.id == "build-image") | .with.tags // ""' docker/tests/action.yaml)
+          if printf '%s\n' "${build_tags}" | grep -q 'content-tag'; then
+            echo "build-image publishes the content tag, bypassing the scan and stale gates" >&2
+            exit 1
+          fi
+
+      - name: Verify promotion is content-addressed and opt-in
+        run: |
+          set -euo pipefail
+
+          promote_if=$(yq -r '.runs.steps[] | select(.id == "promote") | .if // ""' docker/tests/action.yaml)
+          default=$(yq -r '.inputs."content-tag".default // ""' docker/tests/action.yaml)
+
+          # Empty by default: a caller that does not compute a content tag keeps the
+          # previous build-every-time behaviour.
+          [ -z "${default}" ]
+          printf '%s\n' "${promote_if}" | grep -q "inputs.content-tag != ''"
+          printf '%s\n' "${promote_if}" | grep -q "eligible_for_preview == 'true'"
 
       - name: Verify fork skip path contract
         run: |
@@ -193,7 +393,6 @@ jobs:
           printf '%s\n' "${comment_run}" | grep -q '## Stale PR head'
           printf '%s\n' "${comment_run}" | grep -q 'Not ready because'
           printf '%s\n' "${comment_run}" | grep -q 'no report available'
-          printf '%s\n' "${comment_run}" | grep -q 'warning'
 
       - name: Verify diagnostics use non-empty report checks
         run: |
@@ -220,22 +419,19 @@ jobs:
           printf '%s\n' "${publish_run}" | grep -q 'gh pr comment'
           printf '%s\n' "${publish_run}" | grep -q 'rm -f "\${body_file}"'
 
-      - name: Verify scan-required false permits push/readiness despite scan failure
+      - name: Verify the build cannot depend on a scan that runs after it
         run: |
           set -euo pipefail
 
-          preview_if=$(yq -r '.runs.steps[] | select(.id == "preview-push") | .if // ""' docker/tests/action.yaml)
-          finalize_run=$(yq -r '.runs.steps[] | select(.id == "finalize") | .run // ""' docker/tests/action.yaml)
-
-          if printf '%s\n' "${preview_if}" | grep -q "steps.trivy.outcome == 'success' &&"; then
-            echo "Preview push is hard-gated on Trivy success even when scan-required=false" >&2
+          # scan-required lives entirely in the readiness gate now, which
+          # tests/scripts/test_finalize.sh exercises directly. What still has to be
+          # asserted here is that the build did not grow a dependency on Trivy, which
+          # would be an ordering bug the gate tests cannot see.
+          build_if=$(yq -r '.runs.steps[] | select(.id == "build-image") | .if // ""' docker/tests/action.yaml)
+          if printf '%s\n' "${build_if}" | grep -q "steps.trivy"; then
+            echo "Build/push references the Trivy outcome, which runs after it" >&2
             exit 1
           fi
-
-          printf '%s\n' "${preview_if}" | grep -q "(inputs.scan-required != 'true' || steps.trivy.outcome == 'success')"
-          printf '%s\n' "${finalize_run}" | grep -q 'if \[ "${scan_required}" = "true" \]; then'
-          printf '%s\n' "${finalize_run}" | grep -q 'else'
-          printf '%s\n' "${finalize_run}" | grep -q 'ready_allowed="true"'
 
       - name: Verify Trivy action ref is pinned and non-floating
         run: |
@@ -267,17 +463,14 @@ jobs:
 
           stale_guard_script=$(yq -r '.runs.steps[] | select(.id == "stale-sha-guard") | .with.script // ""' docker/tests/action.yaml)
           add_label_if=$(yq -r '.runs.steps[] | select(.id == "add-ready-label") | .if // ""' docker/tests/action.yaml)
-          finalize_run=$(yq -r '.runs.steps[] | select(.id == "finalize") | .run // ""' docker/tests/action.yaml)
 
           printf '%s\n' "${stale_guard_script}" | grep -q 'const stale = liveSha !== expectedSha'
-          printf '%s\n' "${finalize_run}" | grep -q '\[ "${stale_pr_head}" != "true" \]'
           printf '%s\n' "${add_label_if}" | grep -q "steps.finalize.outputs.ready_allowed == 'true'"
 
       - name: Verify outputs/reporting and immutable tag contract
         run: |
           set -euo pipefail
 
-          finalize_run=$(yq -r '.runs.steps[] | select(.id == "finalize") | .run // ""' docker/tests/action.yaml)
           comment_run=$(yq -r '.runs.steps[] | select(.id == "comment") | .run // ""' docker/tests/action.yaml)
 
           for key in image tag tags digest image-tag image-digest; do
@@ -288,18 +481,18 @@ jobs:
             fi
           done
 
-          printf '%s\n' "${finalize_run}" | grep -q 'echo "tag=${TAG}"'
-          printf '%s\n' "${finalize_run}" | grep -q 'echo "tags<<EOF"'
           for section in '## Readiness' '## Warnings' '## Trivy outcome' '## Hadolint outcome' '## Push outcome' '## Stale PR head'; do
             printf '%s\n' "${comment_run}" | grep -q "${section}"
           done
-          if yq -r '.runs.steps[]?.with.tags // ""' docker/tests/action.yaml | grep -q 'pr-'; then
+
+          with_tags=$(yq -r '.runs.steps[]?.with.tags // ""' docker/tests/action.yaml)
+          if printf '%s\n' "${with_tags}" | grep -q 'pr-'; then
             echo "Mutable pr-<number> tag detected in docker/tests action" >&2
             exit 1
           fi
 
           step_ids=$(yq -r '.runs.steps[]?.id // ""' docker/tests/action.yaml)
-          for step_id in remove-ready-label add-ready-label stale-sha-guard; do
+          for step_id in remove-ready-label add-ready-label stale-sha-guard finalize; do
             if ! printf '%s\n' "${step_ids}" | grep -q "${step_id}"; then
               echo "Expected lifecycle step id not found: ${step_id}" >&2
               exit 1

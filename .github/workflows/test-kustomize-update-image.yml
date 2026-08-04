@@ -8,6 +8,11 @@ on:
       - 'tests/scripts/test_kustomize_update_image.sh'
       - '.github/workflows/test-kustomize-update-image.yml'
 
+# See test-docker-actions.yml: these jobs push only to local git fixtures, never to a
+# remote, so a read-only default is what they actually need.
+permissions:
+  contents: read
+
 jobs:
   validate-action-metadata:
     name: Validate action metadata contract
