@@ -1,3 +1,10 @@
+## [1.4.2](https://github.com/qtsone/actions/compare/v1.4.1...v1.4.2) (2026-08-08)
+
+
+### Bug Fixes
+
+* **deps:** update dependency semantic-release to v24.2.9 ([6f88e57](https://github.com/qtsone/actions/commit/6f88e57f0391a718c34a432b86c603d39ed45390))
+
 ## [1.4.1](https://github.com/qtsone/actions/compare/v1.4.0...v1.4.1) (2026-08-08)
 
 
