@@ -1,3 +1,10 @@
+## [1.4.4](https://github.com/qtsone/actions/compare/v1.4.3...v1.4.4) (2026-08-08)
+
+
+### Bug Fixes
+
+* **deps:** update dependency kubernetes-sigs/kustomize to v5.8.1 ([789cf07](https://github.com/qtsone/actions/commit/789cf0760ae499dd5e78ff07385e8de885c48d7d))
+
 ## [1.4.3](https://github.com/qtsone/actions/compare/v1.4.2...v1.4.3) (2026-08-08)
 
 
