@@ -13,10 +13,12 @@ inputs:
     required: false
   node-version:
     description: 'Node version for setup.'
+    # renovate: datasource=node-version depName=node versioning=docker
     default: '24'
     required: false
   semantic-version:
     description: 'Semantic version for release.'
+    # renovate: datasource=npm depName=semantic-release
     default: '24.2.0'
     required: false
   debug:

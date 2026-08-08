@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# renovate: datasource=github-releases depName=kubernetes-sigs/kustomize extractVersion=^kustomize/v(?<version>.+)$
 DEFAULT_KUSTOMIZE_VERSION="v5.8.1"
 TEMP_DIR_TO_CLEANUP=""
 

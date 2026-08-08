@@ -1,0 +1,81 @@
+{
+  $schema: 'https://docs.renovatebot.com/renovate-schema.json',
+  extends: [
+    'config:recommended',
+    ':semanticCommits',
+  ],
+
+  // `config:recommended` pulls in `:ignoreModulesAndTests`, which skips any path containing
+  // `tests/`. That would silently drop docker/tests/action.yaml — a published action, and the
+  // only home of the hadolint and trivy pins — along with tests/scripts/install_yq.sh.
+  ignorePresets: [':ignoreModulesAndTests'],
+  ignorePaths: [
+    '**/node_modules/**',
+    // Golden files that tests/scripts/test_kustomize_update_image.sh compares byte-for-byte;
+    // bumping the image refs in them fails the suite.
+    'tests/fixtures/**',
+  ],
+
+  // `main` is unprotected and the repo has auto-merge disabled, so GitHub has nothing to gate
+  // a PR on and cannot hold it open until checks finish — Renovate merges via the API itself.
+  // Enable branch protection and repo auto-merge upstream and this can go back to the default.
+  platformAutomerge: false,
+  automergeStrategy: 'squash',
+
+  // Renovate capitalises the verb once a rule sets commitMessagePrefix explicitly, which would
+  // leave the two rules below disagreeing on case.
+  commitMessageAction: 'update',
+
+  customManagers: [
+    {
+      customType: 'regex',
+      description: 'Version pins carrying a `# renovate:` annotation',
+      managerFilePatterns: ['**/*.sh', '**/action.yaml'],
+      matchStrings: [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)(?: versioning=(?<versioning>\\S+))?(?: extractVersion=(?<extractVersion>\\S+))?\\n\\s*\\S+[:=] ?[\"']?v?(?<currentValue>[0-9][^\"'\\s]*)[\"']?",
+      ],
+      versioningTemplate: '{{#if versioning}}{{{versioning}}}{{else}}semver{{/if}}',
+    },
+  ],
+
+  packageRules: [
+    {
+      // These paths are the published product. A bump here changes behaviour for every consumer
+      // pinned to a tag, so it has to travel as `fix` or commit-analyzer cuts no release and
+      // those consumers never receive it. `semanticCommitType` is silently ignored inside a
+      // packageRule — only an explicit prefix works.
+      description: 'Shipped action code — must cut a release',
+      matchFileNames: ['release/**', 'docker/**', 'kustomize/**', 'git/**'],
+      commitMessagePrefix: 'fix(deps):',
+      additionalBranchPrefix: 'actions-',
+    },
+    {
+      // Nothing here is published, so `chore` deliberately produces no version bump.
+      description: 'Own CI and test tooling — no consumer impact',
+      matchFileNames: ['.github/workflows/**', 'tests/**'],
+      commitMessagePrefix: 'chore(deps):',
+      additionalBranchPrefix: 'ci-',
+    },
+    {
+      description: 'Automerge everything below a major',
+      matchUpdateTypes: ['minor', 'patch', 'pin', 'digest'],
+      automerge: true,
+    },
+    {
+      // Node here is the runtime the release action targets, not a library. `docker` versioning
+      // keeps the pin at major-only precision (24 -> 26, never 26.1.0), and the filter drops odd
+      // majors, which are never LTS.
+      description: 'Track Node LTS majors only',
+      matchDepNames: ['node'],
+      allowedVersions: '/^\\d*[02468]\\./',
+    },
+    {
+      // `node-version: ${{ inputs.node-version }}` in release/action.yaml is a workflow
+      // expression, not a version the github-actions manager can ever resolve.
+      description: 'Ignore un-resolvable templated versions',
+      matchManagers: ['github-actions'],
+      matchDepNames: ['node'],
+      enabled: false,
+    },
+  ],
+}
