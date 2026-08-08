@@ -1,3 +1,10 @@
+## [1.4.3](https://github.com/qtsone/actions/compare/v1.4.2...v1.4.3) (2026-08-08)
+
+
+### Bug Fixes
+
+* **deps:** update hadolint/hadolint-action action to v3.4.0 ([a1b845d](https://github.com/qtsone/actions/commit/a1b845ddce873e7fb746b46846a9cfcd9f396980))
+
 ## [1.4.2](https://github.com/qtsone/actions/compare/v1.4.1...v1.4.2) (2026-08-08)
 
 
