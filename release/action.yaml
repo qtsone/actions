@@ -88,28 +88,30 @@ runs:
         echo "Semantic-release version: ${{ inputs.semantic-version }}"
         echo "Additional plugins: $PLUGINS_LIST"
 
-        # Check if package.json exists
-        PACKAGE_JSON_EXISTS=false
-        if [ -f "package.json" ]; then
-          PACKAGE_JSON_EXISTS=true
-          echo "Found existing package.json"
-        else
-          echo "No package.json found, creating minimal one"
-          echo '{"private": true, "name": "temp-semantic-release"}' > package.json
-        fi
-
-        # Install semantic-release and plugins
-        # Using --no-save to avoid modifying package.json unnecessarily
-        # Using --legacy-peer-deps to handle potential peer dependency conflicts
-        npm install --no-save --legacy-peer-deps \
+        # Global, not local. semantic-release is build tooling, not a project
+        # dependency: a local `npm install` in a repo that has its own package.json
+        # (e.g. a real app) resolves and reinstalls that repo's *entire* dependency
+        # tree just to add three packages — observed costing ~60s in qtsone/forge
+        # for zero benefit. A global install only touches npm's own global tree, so
+        # anything already satisfied there (this exact version, pre-baked into
+        # qtsone/runner-image) is a fast no-op, and only genuinely missing/mismatched
+        # packages (a custom extra-plugin, a pinned semantic-version) get installed.
+        #
+        # Expectation this relies on, and what to check first if this step starts
+        # failing with EACCES: the Node in use (from Setup Node.js above) must be
+        # owned by the account running this step, so npm's global prefix is writable
+        # without sudo. Verified true on both environments this action targets —
+        # GitHub-hosted runners (the tool cache under /opt/hostedtoolcache is always
+        # owned by the runner account) and qtsone/runner-image on self-hosted ARC
+        # (image is built and run as the same uid, no securityContext override in
+        # cloud-1's arc-runner Helm values). If a runner environment is ever added
+        # where that stops holding, or ARC's runtime uid diverges from the image's
+        # build-time uid, this step needs the local --no-save install (and the
+        # temporary-package.json handling it required) restored — see git history
+        # on this file prior to this commit.
+        npm install -g --legacy-peer-deps \
           semantic-release@${{ inputs.semantic-version }} \
           $PLUGINS_LIST
-
-        # Clean up package.json if we created it
-        if [ "$PACKAGE_JSON_EXISTS" = "false" ]; then
-          echo "Removing temporary package.json"
-          rm -f package.json package-lock.json
-        fi
 
         echo "✓ Installation complete"
 
