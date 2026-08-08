@@ -1,3 +1,10 @@
+# [1.4.0](https://github.com/qtsone/actions/compare/v1.3.7...v1.4.0) (2026-08-08)
+
+
+### Features
+
+* **release:** default node-version to 24 ([d2d8758](https://github.com/qtsone/actions/commit/d2d8758aba099a8ceb4204a73ebf90b4c7c2e5a1))
+
 ## [1.3.7](https://github.com/qtsone/actions/compare/v1.3.6...v1.3.7) (2026-08-04)
 
 
