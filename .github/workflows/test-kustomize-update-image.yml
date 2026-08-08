@@ -36,7 +36,7 @@ jobs:
             [commit]="true"
             [dry-run]="false"
             [skip-install]="false"
-            [kustomize-version]="v5.4.3"
+            [kustomize-version]="v5.8.1"
             [commit-message]="chore(deploy): update production image [skip ci]"
             [commit-user-name]="github-actions[bot]"
             [commit-user-email]="github-actions[bot]@users.noreply.github.com"
