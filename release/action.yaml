@@ -13,7 +13,7 @@ inputs:
     required: false
   node-version:
     description: 'Node version for setup.'
-    default: '20'
+    default: '24'
     required: false
   semantic-version:
     description: 'Semantic version for release.'

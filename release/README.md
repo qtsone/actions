@@ -48,8 +48,8 @@ Our solution provides:
 |-------|-------------|----------|---------|
 | `github-token` | GitHub Token (GITHUB_TOKEN or PAT) | Yes | - |
 | `ssh-key` | SSH key for checkout (optional) | No | - |
-| `node-version` | Node.js version | No | `20` |
-| `semantic-version` | semantic-release version | No | `21.1.1` |
+| `node-version` | Node.js version | No | `24` |
+| `semantic-version` | semantic-release version | No | `24.2.0` |
 | `debug` | Enable debug mode | No | `true` |
 | `dry-run` | Run in dry-run mode (no publish) | No | `false` |
 | `tag-prefix` | Tag prefix (e.g., "v" for v1.0.0) | No | `v` |
