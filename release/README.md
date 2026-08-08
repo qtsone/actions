@@ -21,7 +21,7 @@ App release flow after a published release is: run `qtsone/actions/docker/build`
 ✅ **Flexible Plugin System** - Easy configuration of semantic-release plugins
 ✅ **Full Transparency** - Clear logging and debug output
 ✅ **Proper Output Handling** - Reliable capture of release status and version
-✅ **Package.json Handling** - Works with or without existing package.json
+✅ **Global Install** - Installs semantic-release globally, independent of the repo's own package.json/dependencies
 ✅ **Dry-Run Support** - Test releases without publishing
 ✅ **Comprehensive Error Handling** - Clear error messages and exit codes
 
@@ -243,19 +243,29 @@ To trigger additional workflows from the tag, you need to set up a deploy key an
 
 ## How It Works
 
-### 0. Pre-baked Install Skip
+### 0. Global, Not Local, Install
 
-Before installing anything, the action checks whether a global `semantic-release` binary
-already on `PATH` matches the requested `semantic-version` **and** `extra-plugins` are
-exactly the default (`@semantic-release/changelog` + `@semantic-release/git`). If so, the
-`npm install` step is skipped entirely.
+`semantic-release` and its plugins are installed with `npm install -g`, not a plain local
+`npm install` in the checked-out repo. semantic-release is build tooling, not a project
+dependency — a local install in a repo with its own `package.json` (a real app, not a bare
+repo) resolves and reinstalls that *entire* project's dependency tree just to add three
+packages, which cost ~60s for zero benefit in `qtsone/forge`.
 
-This matters most in repos with an existing `package.json`: without the skip, `npm install`
-reconciles the *entire* project dependency tree on every release run, not just
-semantic-release — on the `qtsone/runner-image` runner, which bakes this exact
-version/plugin combination into its Node install, that reinstall was costing ~60s per
-release for no reason. Any repo pinning a non-default `semantic-version` or `extra-plugins`
-falls through to the normal install path unaffected.
+A global install only touches npm's own global tree, so anything already satisfied there
+is a fast no-op — including this exact version/plugin combination, which
+`qtsone/runner-image` pre-bakes into its Node install for self-hosted ARC runners. Only
+genuinely missing or mismatched packages (a custom `extra-plugins` entry, a pinned
+`semantic-version`) actually get installed. This also means the action no longer needs to
+create or clean up a temporary `package.json`: global installs never touch the local one.
+
+**Expectation this relies on:** the Node in use (from the `Setup Node.js` step) must be
+owned by the account running this step, so npm's global prefix is writable without sudo.
+True on GitHub-hosted runners (`/opt/hostedtoolcache` is always owned by the runner
+account) and on `qtsone/runner-image` (built and run as the same uid, verified against
+`cloud-1`'s ARC Helm values — no `securityContext` override). If a future runner
+environment breaks that assumption, this step fails with `EACCES`; the fallback is
+reverting to the local `--no-save` install this replaced (see git history on
+`release/action.yaml`).
 
 ### 1. Multi-line Input Handling
 
@@ -266,14 +276,7 @@ PLUGINS_INPUT="${{ inputs.extra-plugins }}"
 PLUGINS_LIST=$(echo "$PLUGINS_INPUT" | tr '\n' ' ' | xargs)
 ```
 
-### 2. Package.json Management
-
-The action handles repositories with or without package.json:
-
-- **If package.json exists:** Uses it and installs plugins with `--no-save`
-- **If package.json missing:** Creates temporary one, installs plugins, then removes it
-
-### 3. Output Parsing
+### 2. Output Parsing
 
 The action captures semantic-release output and parses it for:
 
@@ -287,7 +290,7 @@ Patterns matched:
 - `"There are no relevant changes"` → No release
 - `"The next release version is X.Y.Z"` → Dry-run determination
 
-### 4. Environment Setup
+### 3. Environment Setup
 
 Proper environment variables for semantic-release:
 
@@ -315,9 +318,12 @@ Enable debug output to see detailed semantic-release logs:
 
 ### Common Issues
 
-#### Issue: "No package.json found"
+#### Issue: "EACCES" during install
 
-- Solution: This is expected and handled automatically. The action creates a temporary one.
+- Solution: the global `npm install -g` step needs write access to the Node install's global
+  prefix. This holds on GitHub-hosted runners and on `qtsone/runner-image`; a custom runner
+  image or an unusual `securityContext` that runs the job as a different user than the one
+  Node was installed as would break it.
 
 #### Issue: "Plugin not found"
 
