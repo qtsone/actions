@@ -74,7 +74,36 @@ runs:
       with:
         node-version: ${{ inputs.node-version }}
 
+    - name: Check for pre-baked semantic-release
+      id: preflight
+      shell: bash
+      run: |
+        set -e
+
+        # Convert multi-line extra-plugins input to space-separated list, same
+        # normalization the install step below applies, so the comparison against
+        # the action's own default is exact.
+        PLUGINS_LIST=$(echo "${{ inputs.extra-plugins }}" | tr '\n' ' ' | xargs)
+        DEFAULT_PLUGINS="@semantic-release/changelog @semantic-release/git"
+
+        NEEDS_INSTALL=true
+        if command -v semantic-release >/dev/null 2>&1; then
+          INSTALLED_VERSION=$(semantic-release --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)
+          if [ "$INSTALLED_VERSION" = "${{ inputs.semantic-version }}" ] && [ "$PLUGINS_LIST" = "$DEFAULT_PLUGINS" ]; then
+            NEEDS_INSTALL=false
+          fi
+        fi
+
+        if [ "$NEEDS_INSTALL" = "false" ]; then
+          echo "✓ Found global semantic-release ${{ inputs.semantic-version }} with default plugins pre-installed, skipping npm install"
+        else
+          echo "No matching pre-installed semantic-release found, will install via npm"
+        fi
+
+        echo "needs-install=$NEEDS_INSTALL" >> $GITHUB_OUTPUT
+
     - name: Install semantic-release and plugins
+      if: steps.preflight.outputs.needs-install == 'true'
       shell: bash
       run: |
         set -e

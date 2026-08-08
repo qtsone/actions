@@ -243,6 +243,20 @@ To trigger additional workflows from the tag, you need to set up a deploy key an
 
 ## How It Works
 
+### 0. Pre-baked Install Skip
+
+Before installing anything, the action checks whether a global `semantic-release` binary
+already on `PATH` matches the requested `semantic-version` **and** `extra-plugins` are
+exactly the default (`@semantic-release/changelog` + `@semantic-release/git`). If so, the
+`npm install` step is skipped entirely.
+
+This matters most in repos with an existing `package.json`: without the skip, `npm install`
+reconciles the *entire* project dependency tree on every release run, not just
+semantic-release — on the `qtsone/runner-image` runner, which bakes this exact
+version/plugin combination into its Node install, that reinstall was costing ~60s per
+release for no reason. Any repo pinning a non-default `semantic-version` or `extra-plugins`
+falls through to the normal install path unaffected.
+
 ### 1. Multi-line Input Handling
 
 The action properly handles multi-line `extra-plugins` input by converting newlines to spaces:
