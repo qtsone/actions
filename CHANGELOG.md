@@ -1,3 +1,10 @@
+## [1.4.1](https://github.com/qtsone/actions/compare/v1.4.0...v1.4.1) (2026-08-08)
+
+
+### Bug Fixes
+
+* **release:** skip npm install when semantic-release is already baked ([9b8e389](https://github.com/qtsone/actions/commit/9b8e389d2e95909346526e8622cb84f0023a4ec9))
+
 # [1.4.0](https://github.com/qtsone/actions/compare/v1.3.7...v1.4.0) (2026-08-08)
 
 
