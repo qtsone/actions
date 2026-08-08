@@ -43,6 +43,7 @@ inputs:
   kustomize-version:
     description: "Pinned kustomize version for installer"
     required: false
+    # renovate: datasource=github-releases depName=kubernetes-sigs/kustomize extractVersion=^kustomize/v(?<version>.+)$
     default: "v5.4.3"
   extra-paths:
     description: >-
