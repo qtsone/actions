@@ -121,7 +121,7 @@ runs:
       id: build-and-push
       # v6, not v5: DOCKER_BUILD_SUMMARY below is only honoured from v6.3.0, and on v5 the
       # summary post step it disables does not exist to begin with.
-      uses: docker/build-push-action@v6
+      uses: docker/build-push-action@v7
       env:
         # The post step uploads a build-summary artifact via `buildx history export
         # --finalize`, which costs tens of seconds per build and is rarely opened.

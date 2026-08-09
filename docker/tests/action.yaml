@@ -212,7 +212,7 @@ runs:
         # --finalize`, which costs tens of seconds per build and is rarely opened.
         DOCKER_BUILD_SUMMARY: "false"
       if: ${{ steps.promote.outputs.promoted != 'true' && steps.context.outputs.eligible_for_preview == 'true' && inputs.preview-push-enabled == 'true' }}
-      uses: docker/build-push-action@v6
+      uses: docker/build-push-action@v7
       with:
         context: ${{ inputs.context }}
         file: ${{ inputs.dockerfile-path }}
@@ -229,7 +229,7 @@ runs:
       env:
         DOCKER_BUILD_SUMMARY: "false"
       if: ${{ steps.context.outputs.eligible_for_preview != 'true' || inputs.preview-push-enabled != 'true' }}
-      uses: docker/build-push-action@v6
+      uses: docker/build-push-action@v7
       with:
         context: ${{ inputs.context }}
         file: ${{ inputs.dockerfile-path }}
