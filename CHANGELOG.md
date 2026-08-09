@@ -1,3 +1,14 @@
+## [1.4.5](https://github.com/qtsone/actions/compare/v1.4.4...v1.4.5) (2026-08-09)
+
+
+### Bug Fixes
+
+* **deps:** update actions/checkout action to v7 ([c9560cc](https://github.com/qtsone/actions/commit/c9560cc85f065e5adc5de63fb02d2d409fb4920a))
+* **deps:** update actions/github-script action to v9 ([8aea474](https://github.com/qtsone/actions/commit/8aea4745cde075c7b400bf9acf13fad8736dc78e))
+* **deps:** update actions/setup-node action to v7 ([8f585f8](https://github.com/qtsone/actions/commit/8f585f846a74f65d6e971caa25b9baf893510e60))
+* **deps:** update dependency semantic-release to v25 ([0f20a37](https://github.com/qtsone/actions/commit/0f20a37597d45a335d51117789d89bd61118c527))
+* **deps:** update docker/build-push-action action to v7 ([e52c2a0](https://github.com/qtsone/actions/commit/e52c2a001d3e24502989c7fdf207c9f69fd3073e))
+
 ## [1.4.4](https://github.com/qtsone/actions/compare/v1.4.3...v1.4.4) (2026-08-08)
 
 
