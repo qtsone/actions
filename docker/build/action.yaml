@@ -92,7 +92,7 @@ runs:
   steps:
     - name: Checkout code
       if: ${{ inputs.checkout == 'true' }}
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
