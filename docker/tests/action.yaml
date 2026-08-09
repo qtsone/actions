@@ -176,7 +176,7 @@ runs:
       continue-on-error: true
 
     - name: Setup Docker buildx
-      uses: docker/setup-buildx-action@v3
+      uses: docker/setup-buildx-action@v4
 
     - name: Login to container registry
       if: ${{ steps.context.outputs.eligible_for_preview == 'true' && inputs.preview-push-enabled == 'true' }}
