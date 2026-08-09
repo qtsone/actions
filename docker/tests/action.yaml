@@ -140,7 +140,7 @@ runs:
     - name: Remove ready label at start
       id: remove-ready-label
       if: ${{ steps.context.outputs.eligible_for_preview == 'true' && inputs.ready-label-enabled == 'true' }}
-      uses: actions/github-script@v7
+      uses: actions/github-script@v9
       with:
         github-token: ${{ inputs.github-token }}
         script: |
@@ -255,7 +255,7 @@ runs:
     - name: Check live PR head SHA
       id: stale-sha-guard
       if: ${{ steps.context.outputs.eligible_for_preview == 'true' }}
-      uses: actions/github-script@v7
+      uses: actions/github-script@v9
       with:
         github-token: ${{ inputs.github-token }}
         script: |
@@ -320,7 +320,7 @@ runs:
     - name: Add ready label after successful readiness gate
       id: add-ready-label
       if: ${{ steps.finalize.outputs.ready_allowed == 'true' }}
-      uses: actions/github-script@v7
+      uses: actions/github-script@v9
       with:
         github-token: ${{ inputs.github-token }}
         script: |
