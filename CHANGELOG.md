@@ -1,3 +1,11 @@
+## [1.4.7](https://github.com/qtsone/actions/compare/v1.4.6...v1.4.7) (2026-08-09)
+
+
+### Bug Fixes
+
+* **deps:** update docker/metadata-action action to v6 ([b2d3fd7](https://github.com/qtsone/actions/commit/b2d3fd79915518f50f2a89a38ca1c944558c31b8))
+* **deps:** update docker/setup-buildx-action action to v4 ([04adca2](https://github.com/qtsone/actions/commit/04adca2f21dda6cc708174bb0ff40393003c9f7c))
+
 ## [1.4.6](https://github.com/qtsone/actions/compare/v1.4.5...v1.4.6) (2026-08-09)
 
 
