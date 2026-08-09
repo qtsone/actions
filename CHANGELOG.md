@@ -1,3 +1,10 @@
+## [1.4.6](https://github.com/qtsone/actions/compare/v1.4.5...v1.4.6) (2026-08-09)
+
+
+### Bug Fixes
+
+* **deps:** update docker/login-action action to v4 ([7f07721](https://github.com/qtsone/actions/commit/7f07721648249ceea6679d66380a29a0ced0cf30))
+
 ## [1.4.5](https://github.com/qtsone/actions/compare/v1.4.4...v1.4.5) (2026-08-09)
 
 
