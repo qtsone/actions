@@ -90,27 +90,26 @@ runs:
         echo "Semantic-release version: ${{ inputs.semantic-version }}"
         echo "Additional plugins: $PLUGINS_LIST"
 
-        # Global, not local. semantic-release is build tooling, not a project
-        # dependency: a local `npm install` in a repo that has its own package.json
-        # (e.g. a real app) resolves and reinstalls that repo's *entire* dependency
-        # tree just to add three packages — observed costing ~60s in qtsone/forge
-        # for zero benefit. A global install only touches npm's own global tree, so
-        # anything already satisfied there (this exact version, pre-baked into
-        # qtsone/runner-image) is a fast no-op, and only genuinely missing/mismatched
-        # packages (a custom extra-plugin, a pinned semantic-version) get installed.
-        #
-        # Expectation this relies on, and what to check first if this step starts
-        # failing with EACCES: the Node in use (from Setup Node.js above) must be
-        # owned by the account running this step, so npm's global prefix is writable
-        # without sudo. Verified true on both environments this action targets —
-        # GitHub-hosted runners (the tool cache under /opt/hostedtoolcache is always
-        # owned by the runner account) and qtsone/runner-image on self-hosted ARC
-        # (image is built and run as the same uid, no securityContext override in
-        # cloud-1's arc-runner Helm values). If a runner environment is ever added
-        # where that stops holding, or ARC's runtime uid diverges from the image's
-        # build-time uid, this step needs the local --no-save install (and the
-        # temporary-package.json handling it required) restored — see git history
-        # on this file prior to this commit.
+        # Skip npm when the global tree already has what was asked for (qtsone/runner-image
+        # bakes the default version and plugins). `npm install -g` is not a no-op even then:
+        # with no lockfile it re-resolves and rewrites the whole tree. A version-suffixed
+        # plugin never matches the directory check and falls through to the install.
+        INSTALLED=$(semantic-release --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 || true)
+        NEEDS_INSTALL=false
+        [ "$INSTALLED" = "${{ inputs.semantic-version }}" ] || NEEDS_INSTALL=true
+        GLOBAL_ROOT=$(npm root -g)
+        for plugin in $PLUGINS_LIST; do
+          [ -d "$GLOBAL_ROOT/$plugin" ] || NEEDS_INSTALL=true
+        done
+
+        if [ "$NEEDS_INSTALL" = "false" ]; then
+          echo "✓ semantic-release ${{ inputs.semantic-version }} and all plugins already installed globally, skipping npm install"
+          exit 0
+        fi
+
+        # Global, not local: a local install in a repo with its own package.json reinstalls
+        # that repo's entire dependency tree to add three packages. Needs the Node install's
+        # global prefix writable by this user; an EACCES here means it is not.
         npm install -g --legacy-peer-deps \
           semantic-release@${{ inputs.semantic-version }} \
           $PLUGINS_LIST
@@ -142,7 +141,7 @@ runs:
         fi
 
         # Prepare semantic-release command
-        SR_CMD="npx semantic-release"
+        SR_CMD="semantic-release"
         if [ "${{ inputs.dry-run }}" = "true" ]; then
           SR_CMD="$SR_CMD --dry-run"
           echo "Running in DRY-RUN mode (no actual release will be created)"

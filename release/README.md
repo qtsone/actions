@@ -245,27 +245,15 @@ To trigger additional workflows from the tag, you need to set up a deploy key an
 
 ### 0. Global, Not Local, Install
 
-`semantic-release` and its plugins are installed with `npm install -g`, not a plain local
-`npm install` in the checked-out repo. semantic-release is build tooling, not a project
-dependency — a local install in a repo with its own `package.json` (a real app, not a bare
-repo) resolves and reinstalls that *entire* project's dependency tree just to add three
-packages, which cost ~60s for zero benefit in `qtsone/forge`.
+`semantic-release` and its plugins are installed with `npm install -g`. A local install
+would reconcile the checked-out repo's own dependency tree just to add three packages.
 
-A global install only touches npm's own global tree, so anything already satisfied there
-is a fast no-op — including this exact version/plugin combination, which
-`qtsone/runner-image` pre-bakes into its Node install for self-hosted ARC runners. Only
-genuinely missing or mismatched packages (a custom `extra-plugins` entry, a pinned
-`semantic-version`) actually get installed. This also means the action no longer needs to
-create or clean up a temporary `package.json`: global installs never touch the local one.
-
-**Expectation this relies on:** the Node in use (from the `Setup Node.js` step) must be
-owned by the account running this step, so npm's global prefix is writable without sudo.
-True on GitHub-hosted runners (`/opt/hostedtoolcache` is always owned by the runner
-account) and on `qtsone/runner-image` (built and run as the same uid, verified against
-`cloud-1`'s ARC Helm values — no `securityContext` override). If a future runner
-environment breaks that assumption, this step fails with `EACCES`; the fallback is
-reverting to the local `--no-save` install this replaced (see git history on
-`release/action.yaml`).
+The step first checks whether the requested `semantic-version` is already the global
+`semantic-release` and every `extra-plugins` entry exists under `npm root -g`. If so, npm
+is skipped entirely. `qtsone/runner-image` pre-bakes the default version and plugins, so
+on self-hosted ARC runners this step takes about a second. Any mismatch (a pinned
+`semantic-version`, a custom or version-suffixed plugin, a hosted runner) installs as
+usual.
 
 ### 1. Multi-line Input Handling
 
