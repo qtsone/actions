@@ -10,7 +10,7 @@
 set -euo pipefail
 
 # renovate: datasource=github-releases depName=mikefarah/yq extractVersion=^v(?<version>.+)$
-DEFAULT_YQ_VERSION="v4.53.3"
+DEFAULT_YQ_VERSION="v4.53.6"
 TEMP_DIR_TO_CLEANUP=""
 
 fail() {
