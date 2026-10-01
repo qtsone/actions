@@ -1,0 +1,142 @@
+name: Test Git Attribution Action
+
+on:
+  pull_request:
+    paths:
+      - 'git/attribution/**'
+      - 'tests/scripts/test_attribution.sh'
+      - '.github/workflows/test-git-attribution.yml'
+
+# See test-docker-actions.yml: nothing here needs a token — the jobs read the checkout, run
+# shell fixtures in temp repos and inspect YAML — and a workflow-level default means a job
+# added later cannot quietly inherit write access it was never meant to have.
+permissions:
+  contents: read
+
+jobs:
+  test-script-behavior:
+    name: Validate script behavior contracts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Execute attribution behaviour tests
+        run: bash tests/scripts/test_attribution.sh
+
+      - name: Lint action scripts
+        run: |
+          set -euo pipefail
+          shellcheck -s bash \
+            git/attribution/scripts/attribution.sh \
+            tests/scripts/test_attribution.sh
+
+      - name: Verify action script is executable
+        run: |
+          set -euo pipefail
+          script="git/attribution/scripts/attribution.sh"
+          if [ ! -x "${script}" ]; then
+            echo "${script} is not executable; composite actions invoke it directly" >&2
+            exit 1
+          fi
+
+  validate-action-metadata:
+    name: Validate action metadata contract
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # The owner's rule names thirteen agents. The behaviour tests read the list out of
+      # action.yaml rather than copying it, so only its contents need asserting here.
+      - name: Validate the default agent list is the thirteen named agents
+        run: |
+          set -euo pipefail
+          actual=$(yq -r '.inputs.agents.default' git/attribution/action.yaml \
+            | sed '/^[[:space:]]*$/d' | tr '\n' ',')
+          expected="Zeus,CPO,CTO,Design Lead,Ledger,Beacon,Lex,Anvil,Casa,Relay,Atlas,Warden,Sentinel,"
+          [ "${actual}" = "${expected}" ] \
+            || { echo "agents default is not the thirteen named agents: '${actual}'" >&2; exit 1; }
+
+          actual=$(yq -r '.inputs.exempt-authors.default' git/attribution/action.yaml \
+            | sed '/^[[:space:]]*$/d' | tr '\n' ',')
+          expected="renovate[bot],github-actions[bot],dependabot[bot],"
+          [ "${actual}" = "${expected}" ] \
+            || { echo "exempt-authors default changed: '${actual}'" >&2; exit 1; }
+
+      - name: Validate remaining input defaults
+        run: |
+          set -euo pipefail
+
+          check_default() {
+            local key="$1" expected="$2" actual
+            actual=$(yq -r ".inputs.\"${key}\".default // \"\"" git/attribution/action.yaml)
+            [ "${actual}" = "${expected}" ] \
+              || { echo "Default mismatch for ${key}: '${actual}'" >&2; exit 1; }
+          }
+
+          check_default allow-paperclip-trailer "false"
+          check_default extra-coauthor-policy "fail"
+
+          # The three event-derived defaults are what make the zero-config call work, so they
+          # are asserted too — but an Actions expression written literally in a workflow `run`
+          # body is substituted before bash ever sees it, so the delimiter is assembled at
+          # runtime and the value compared with the punctuation stripped.
+          delim="$(printf '%s%s' '$' '{{')"
+          check_expression() {
+            local key="$1" path="$2" actual stripped
+            actual=$(yq -r ".inputs.\"${key}\".default // \"\"" git/attribution/action.yaml)
+            case "${actual}" in
+              "${delim}"*) ;;
+              *) echo "${key} default must be an Actions expression: '${actual}'" >&2; exit 1 ;;
+            esac
+            stripped=$(printf '%s' "${actual}" | tr -d ' ${}')
+            [ "${stripped}" = "${path}" ] \
+              || { echo "${key} default reads the wrong value: '${actual}'" >&2; exit 1; }
+          }
+
+          check_expression base-sha github.event.pull_request.base.sha
+          check_expression head-sha github.event.pull_request.head.sha
+          check_expression pr-body github.event.pull_request.body
+
+          # Every input is optional by design: the PR defaults are the whole point, and a
+          # required input would make the documented zero-config call fail.
+          for key in agents base-sha head-sha pr-body exempt-authors allow-paperclip-trailer extra-coauthor-policy; do
+            required=$(yq -r ".inputs.\"${key}\".required // \"false\"" git/attribution/action.yaml)
+            [ "${required}" = "false" ] || { echo "Input ${key} should be optional" >&2; exit 1; }
+          done
+
+      - name: Validate the PR body reaches the script as environment, not interpolation
+        run: |
+          set -euo pipefail
+          # An expression reading the pr-body input, spliced into a `run:` body, would execute
+          # whatever a PR author wrote. It must only ever arrive via env. (Written without the
+          # expression delimiters on purpose: Actions substitutes them anywhere in a run body,
+          # comments included, and `inputs` is not a context a plain workflow can resolve.)
+          run_body=$(yq -r '.runs.steps[] | select(.name == "Check attribution") | .run' git/attribution/action.yaml)
+          printf '%s\n' "${run_body}" | grep -q 'scripts/attribution.sh'
+          if printf '%s\n' "${run_body}" | grep -q 'inputs\.'; then
+            echo "action inputs must not be interpolated into the run body" >&2
+            exit 1
+          fi
+          # Same reason as the step above: the expression is matched by its stripped form so
+          # this body carries no `inputs` reference, which a plain workflow cannot resolve.
+          env_body=$(yq -r '.runs.steps[] | select(.name == "Check attribution") | .env.PR_BODY' git/attribution/action.yaml)
+          [ "$(printf '%s' "${env_body}" | tr -d ' ${}')" = "inputs.pr-body" ] \
+            || { echo "PR_BODY must come from the pr-body input: '${env_body}'" >&2; exit 1; }
+
+  self-check:
+    name: Check this pull request's own attribution
+    runs-on: ubuntu-latest
+    steps:
+      # fetch-depth: 0 because the action walks base..head, and a depth-1 clone has neither
+      # end of that range.
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # Dogfood: proves the composite wiring works against a real event payload, and the
+      # rule this action enforces applies to the action's own PR like any other.
+      - name: Attribution
+        uses: ./git/attribution
