@@ -115,6 +115,7 @@ A single line that matches both a vendor needle and the Claude trailer name is r
 - **The trailer must start its line.** A mid-sentence mention — a PR body explaining the rule, say — is not read as a trailer. Leading whitespace is tolerated.
 - **Only the commits in the range are checked.** A squash merge composes a *new* message from the PR body and the commit list, and GitHub adds its co-author line at that moment; the pre-merge run cannot see it. Checking the PR body is what covers most of that gap, since the body is what the squash message is built from.
 - **Author matching for exemptions is by name, not verified identity.** `%an` is whatever the committer set. The input exists to avoid false failures on bot PRs, not as a security boundary.
+- **Text that *describes* the rule trips it.** The vendor needles are matched as substrings on any line, so a commit message or PR body quoting `noreply@anthropic` + `.com` verbatim fails — as the first version of this action's own PR body did. That is the intended trade: the needles are cheap to match and should never legitimately appear in a commit message. Refer to them descriptively ("the anthropic noreply address", "the Claude Code footer") in prose, and keep the literals in files, which are never scanned.
 
 ## Requirements
 
