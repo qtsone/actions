@@ -43,6 +43,9 @@ name: Attribution
 
 on:
   pull_request:
+    # `edited` is not optional. The PR body is an input, so without it a body that fixes a
+    # reported failure never re-runs the check and the PR stays red on a stale payload.
+    types: [opened, synchronize, reopened, edited]
 
 permissions:
   contents: read
@@ -119,6 +122,7 @@ A single line that matches both a vendor needle and the Claude trailer name is r
 
 ## Requirements
 
+- `types: [opened, synchronize, reopened, edited]` on the `pull_request` trigger. The default type list omits `edited`, and the PR body is an input.
 - A checkout with `fetch-depth: 0`, so both ends of the range are in the object database.
 - `git` and `bash`. No network calls, no other tooling.
 - Permissions: `contents: read`.

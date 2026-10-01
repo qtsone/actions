@@ -2,6 +2,10 @@ name: Test Git Attribution Action
 
 on:
   pull_request:
+    # `edited` is load-bearing: the PR body is an input to this action, and without it a
+    # body that fixes a reported failure never re-runs the check — the run stays red on a
+    # payload that no longer reflects the PR.
+    types: [opened, synchronize, reopened, edited]
     paths:
       - 'git/attribution/**'
       - 'tests/scripts/test_attribution.sh'
