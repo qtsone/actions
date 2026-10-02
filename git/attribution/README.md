@@ -22,7 +22,7 @@ The trailer **key** is matched case-insensitively, so `Co-Authored-By:`, `Co-aut
 
 | Input | Required | Default | Description |
 | --- | --- | --- | --- |
-| `agents` | no | the thirteen agent names | Newline-separated names accepted in the trailer. An empty list is an error, not "accept anything". |
+| `agents` | no | the current agent roster | Newline-separated names accepted in the trailer. An empty list is an error, not "accept anything". |
 | `base-sha` | no | `github.event.pull_request.base.sha` | Exclusive start of the range. On `push`, pass `github.event.before`. |
 | `head-sha` | no | `github.event.pull_request.head.sha` | Inclusive end of the range. On `push`, pass `github.event.after`. |
 | `pr-body` | no | `github.event.pull_request.body` | Body text to check alongside the commits. Empty skips the body check. |
@@ -30,7 +30,9 @@ The trailer **key** is matched case-insensitively, so `Co-Authored-By:`, `Co-aut
 | `allow-paperclip-trailer` | no | `false` | When `true`, one `Co-Authored-By: Paperclip <noreply@paperclip.ing>` line is tolerated alongside the agent trailer. |
 | `extra-coauthor-policy` | no | `fail` | `fail` or `warn`, for a `Co-authored-by:` line naming neither an agent nor Paperclip. |
 
-The default `agents` list is `Zeus, CPO, CTO, Design Lead, Ledger, Beacon, Lex, Anvil, Casa, Relay, Atlas, Warden, Sentinel`. It is declared only in `action.yaml`; the script defaults nothing, and `tests/scripts/test_attribution.sh` reads the list out of the action metadata rather than keeping a second copy that could drift.
+The default `agents` list mirrors the agent roster in company file §7, which is the source of truth; read the names out of `action.yaml` rather than from a copy here, because a copy is what drifts. It is declared only in `action.yaml` — the script defaults nothing, and `tests/scripts/test_attribution.sh` reads the list out of the action metadata.
+
+Roster drift is the failure mode to watch, and it fails in both directions: a newly named agent is rejected exactly like a nonsense name, wedging that agent's CI on every caller, and a retired persona keeps passing and can still claim authorship. A re-org is therefore a change to this default, not only to the company file. `.github/workflows/test-git-attribution.yml` asserts the committed default against an explicit list so that change has to be deliberate.
 
 There are no outputs. The exit status *is* the result.
 

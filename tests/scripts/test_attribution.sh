@@ -123,7 +123,7 @@ main() {
   [[ -f "$ACTION_YAML" ]] || { printf 'FAIL: missing %s\n' "$ACTION_YAML" >&2; exit 1; }
   # A reader that silently returned nothing would make every case below fail on an empty
   # agent list rather than on the behaviour it is testing.
-  [[ "$DEFAULT_AGENTS" == *"Design Lead"* ]] \
+  [[ "$DEFAULT_AGENTS" == *"Atlas"* ]] \
     || { printf 'FAIL: could not read the agents default out of %s\n' "$ACTION_YAML" >&2; exit 1; }
   [[ "$DEFAULT_EXEMPT_AUTHORS" == *"renovate[bot]"* ]] \
     || { printf 'FAIL: could not read the exempt-authors default out of %s\n' "$ACTION_YAML" >&2; exit 1; }
@@ -209,10 +209,26 @@ Co-Authored-By: Atlas"
 Co-Authored-By: Claude <noreply@anthropic.com>" "renovate[bot]"
   assert_fails_with "vendor attribution is not allowed" "vendor checks still apply to an exempt author"
 
+  # No name on the current roster contains a space, so this drives the capability through a
+  # caller-supplied `agents` input — which is how a future multi-word name would arrive — and
+  # not through a default-roster name that a re-org can delete.
   commit_msg "feat: multi-word agent name
 
-Co-Authored-By: Design Lead"
-  assert_ok "an agent name containing a space passes"
+Co-Authored-By: Multi Word Agent"
+  assert_ok "an agent name containing a space passes" AGENTS=$'Multi Word Agent\nAtlas'
+
+  # Roster drift is what this action gets wrong when nothing checks it: on the 2026-10-02
+  # re-org the default still rejected John — a live agent whose CI would have gone red on
+  # every caller — and still accepted four terminated personas. Both directions are asserted
+  # against the default list, so the next re-org fails here rather than in a product repo.
+  commit_msg "feat: a renamed agent
+
+Co-Authored-By: John"
+  assert_ok "a current agent on the default roster passes"
+  commit_msg "feat: a terminated persona
+
+Co-Authored-By: CTO"
+  assert_fails_with "missing the required trailer" "a terminated persona cannot claim authorship"
 
   commit_msg "feat: trailer with an email
 
