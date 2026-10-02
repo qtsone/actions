@@ -83,6 +83,18 @@ jobs:
 
 `fetch-depth: 0` is not optional. The action walks `base..head` in the local object database, and a depth-1 clone contains neither end of that range; it fails with a message naming the fix rather than passing on an empty range.
 
+## As a required status check
+
+A repository that gates merges on this check needs the workflow to run on **every** pull request, so it carries no `paths` filter. A path-filtered workflow does not report at all on a pull request that misses its paths, and a required check that never reports leaves that pull request blocked rather than passing. `.github/workflows/attribution.yml` in this repository is that shape and is the pattern to copy; the check name a ruleset needs is the **job** name, `Attribution`.
+
+One case the zero-config call above does not cover: a bot's pull request body. `exempt-authors` exempts a bot's **commits**, but the body is checked whoever the author is, and a Renovate body carries no agent trailer and can quote the vendor footer verbatim out of an upstream changelog. Skip it on the same grounds its commits are skipped:
+
+```yaml
+          pr-body: ${{ github.event.pull_request.user.type != 'Bot' && github.event.pull_request.body || '' }}
+```
+
+The condition is negated on purpose. An empty string is falsy in an Actions expression, so the obvious `is-bot && '' || body` form falls through to the body for exactly the case it means to skip.
+
 ## Exemptions
 
 `exempt-authors` matches the commit author name (`%an`) exactly. A commit by an exempt author skips the **agent-trailer requirement only** — the vendor, Paperclip and extra-co-author checks still apply to it. Renovate cannot be asked to write an agent trailer, and failing its PRs on one would get the check removed rather than obeyed; a vendor trailer in a Renovate commit is still a vendor trailer.

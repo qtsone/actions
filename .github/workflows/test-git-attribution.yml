@@ -129,18 +129,7 @@ jobs:
           [ "$(printf '%s' "${env_body}" | tr -d ' ${}')" = "inputs.pr-body" ] \
             || { echo "PR_BODY must come from the pr-body input: '${env_body}'" >&2; exit 1; }
 
-  self-check:
-    name: Check this pull request's own attribution
-    runs-on: ubuntu-latest
-    steps:
-      # fetch-depth: 0 because the action walks base..head, and a depth-1 clone has neither
-      # end of that range.
-      - name: Checkout
-        uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
-      # Dogfood: proves the composite wiring works against a real event payload, and the
-      # rule this action enforces applies to the action's own PR like any other.
-      - name: Attribution
-        uses: ./git/attribution
+# The dogfood job that used to live here moved to `attribution.yml`, which runs the action on
+# every pull request in this repository rather than only on one that touches these paths. Two
+# jobs running the same action on the same event is noise, and the required status check has
+# to be the unfiltered one.
