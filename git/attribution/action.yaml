@@ -1,0 +1,80 @@
+name: "Git Attribution"
+description: "Require exactly one Co-Authored-By: <Agent Name> line on every commit and the PR body, and reject vendor or host-identity attribution"
+inputs:
+  agents:
+    description: >-
+      Newline-separated agent names accepted in the trailer. The value is compared exactly
+      after an optional ` <email>` suffix is stripped, so a name containing a space works.
+      An empty list is an error rather than "accept anything".
+    required: false
+    default: |
+      Zeus
+      CPO
+      CTO
+      Design Lead
+      Ledger
+      Beacon
+      Lex
+      Anvil
+      Casa
+      Relay
+      Atlas
+      Warden
+      Sentinel
+  base-sha:
+    description: >-
+      Exclusive start of the range to check. Defaults to the pull request base; on `push`
+      the caller passes `github.event.before`. An all-zero value — GitHub's `before` for the
+      first push of a branch — checks the head commit alone instead of failing.
+    required: false
+    default: ${{ github.event.pull_request.base.sha }}
+  head-sha:
+    description: "Inclusive end of the range to check. Defaults to the pull request head; on `push` the caller passes `github.event.after`."
+    required: false
+    default: ${{ github.event.pull_request.head.sha }}
+  pr-body:
+    description: >-
+      Body text to check alongside the commits. Empty skips the body check, which is what a
+      `push` caller wants. The Claude Code footer lands here more often than in a commit.
+    required: false
+    default: ${{ github.event.pull_request.body }}
+  exempt-authors:
+    description: >-
+      Newline-separated commit author names (`%an`) that skip the agent-trailer requirement.
+      The vendor, Paperclip and extra-co-author checks still apply to their commits.
+    required: false
+    default: |
+      renovate[bot]
+      github-actions[bot]
+      dependabot[bot]
+  allow-paperclip-trailer:
+    description: >-
+      When `true`, one `Co-Authored-By: Paperclip <noreply@paperclip.ing>` line is tolerated
+      in addition to the agent trailer. Exists so that reversing the company ruling on the
+      Paperclip trailer is a one-line change in each caller.
+    required: false
+    default: "false"
+  extra-coauthor-policy:
+    description: >-
+      `fail` or `warn`, governing a `Co-authored-by:` line naming neither an agent nor
+      Paperclip — in practice the host identity GitHub appends to a squash commit when the
+      commit author differs from the merger.
+    required: false
+    default: "fail"
+runs:
+  using: "composite"
+  steps:
+    - name: Check attribution
+      shell: bash
+      # Passed as environment rather than interpolated into the `run` body: the PR body is
+      # attacker-controlled text, and `${{ }}` substitution would splice it into the script
+      # the runner executes.
+      env:
+        AGENTS: ${{ inputs.agents }}
+        BASE_SHA: ${{ inputs.base-sha }}
+        HEAD_SHA: ${{ inputs.head-sha }}
+        PR_BODY: ${{ inputs.pr-body }}
+        EXEMPT_AUTHORS: ${{ inputs.exempt-authors }}
+        ALLOW_PAPERCLIP_TRAILER: ${{ inputs.allow-paperclip-trailer }}
+        EXTRA_COAUTHOR_POLICY: ${{ inputs.extra-coauthor-policy }}
+      run: ${{ github.action_path }}/scripts/attribution.sh

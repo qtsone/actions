@@ -13,8 +13,11 @@ Collection of reusable GitHub Actions for standardized workflows.
 | `docker/promote` | Republish an image the registry already holds under release tags, no rebuild | Optional, on a content-id hit | `packages: write` (the job must also log in to the registry) |
 | `docker/build` | Build and push release image, emit canonical image outputs | Release-published gate, or a content-id miss | `packages: write` |
 | `kustomize/update-image` | Mutate overlay image reference and write back to Git | After image build output is available | `contents: write` |
+| `git/attribution` | Require one `Co-Authored-By: <Agent Name>` line per commit and PR body; reject vendor and host-identity trailers | `pull_request`, outside the delivery chain | None beyond `contents: read`; needs `fetch-depth: 0` so both ends of `base..head` are present |
 
 Release call order for app repositories is: `release -> docker/build -> kustomize/update-image`.
+
+`git/attribution` is the one entry above that is not part of that chain: it gates the merge rather than the delivery, and runs on `pull_request` in any repository regardless of whether that repository ships an image.
 
 Content-addressed promotion is an optional path inside that order. When the tracked content that reaches the image has not moved since a build that already ran (a PR build, typically), the release can republish that image instead of rebuilding it:
 
@@ -91,6 +94,24 @@ Content id for the tracked paths that can reach a build artifact, for content-ad
 - Needs no permissions beyond a checkout that contains the ref being hashed; feeds `content-tag` on `docker/tests` and `docker/promote`.
 
 **Documentation:** [git/content-id/README.md](./git/content-id/README.md)
+
+### Git Attribution Action
+
+Commit and PR attribution gate: exactly one `Co-Authored-By: <Agent Name>` line, and nothing else in that role.
+
+**Location:** `qtsone/actions/git/attribution@main`
+
+**Contract highlights:**
+- Checks every commit in `base-sha..head-sha` and the PR body; defaults read the range and body straight off the `pull_request` event, so the zero-config call needs only a checkout.
+- Requires exactly one trailer naming one of `Zeus, CPO, CTO, Design Lead, Ledger, Beacon, Lex, Anvil, Casa, Relay, Atlas, Warden, Sentinel`. The trailer key is matched case-insensitively; the name is matched exactly, with an optional ` <email>` suffix stripped.
+- Rejects `noreply@anthropic.com`, the `Generated with [Claude Code]` footer, and a `Co-Authored-By: Claude` trailer outright.
+- `allow-paperclip-trailer` (default `false`) tolerates one `Co-Authored-By: Paperclip` line, so reversing that decision is a one-line change in each caller.
+- `extra-coauthor-policy` (default `fail`) governs the host-identity `Co-authored-by:` line GitHub appends to a squash commit when the commit author differs from the merger; `warn` lets a repository with existing ones stop new ones first.
+- `exempt-authors` (default the three bots) skips the agent-trailer requirement for bot commits; the vendor and Paperclip checks still apply to them.
+- Fails loudly rather than degrading: an empty agent list, an unparseable range, and an empty range with an empty body are all errors, because a check that inspected nothing must not render as a green tick.
+- Requires `fetch-depth: 0`; a shallow checkout fails with a message naming the fix.
+
+**Documentation:** [git/attribution/README.md](./git/attribution/README.md)
 
 ### Release Action
 
