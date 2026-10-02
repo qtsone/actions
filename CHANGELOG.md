@@ -1,3 +1,10 @@
+# [1.5.0](https://github.com/qtsone/actions/compare/v1.4.9...v1.5.0) (2026-10-02)
+
+
+### Features
+
+* **git/attribution:** enforce one Co-Authored-By agent trailer (QTS-599) ([#29](https://github.com/qtsone/actions/issues/29)) ([c14aa58](https://github.com/qtsone/actions/commit/c14aa58e0ca8b17c73ef09cb2101ea859e5ad058))
+
 ## [1.4.9](https://github.com/qtsone/actions/compare/v1.4.8...v1.4.9) (2026-10-02)
 
 
