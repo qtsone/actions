@@ -116,7 +116,7 @@ A single line that matches both a vendor needle and the Claude trailer name is r
 
 - **Merge commits in the range are checked like any other commit.** A `git merge` commit carries a tooling-generated message with no trailer and will fail. The house convention is to rebase, so this does not normally arise; if a repository merges `main` into its PR branches, this action is the wrong shape for it as written.
 - **The trailer must start its line.** A mid-sentence mention — a PR body explaining the rule, say — is not read as a trailer. Leading whitespace is tolerated.
-- **Only the commits in the range are checked.** A squash merge composes a *new* message from the PR body and the commit list, and GitHub adds its co-author line at that moment; the pre-merge run cannot see it. Checking the PR body is what covers most of that gap, since the body is what the squash message is built from.
+- **Only the commits in the range are checked, and the squash message is neither of them.** A squash merge composes a *new* message at merge time, and GitHub adds its co-author line then, so the pre-merge run cannot see it. What that body is composed *from* is the repository's `squash_merge_commit_message` setting, and the two values behave oppositely here. On `PR_BODY` the squash body **is** the PR body, so the `pr-body` check covers the gap. On `COMMIT_MESSAGES` — GitHub's default — it is the concatenated commit messages, so an N-commit PR lands **N** copies of the agent trailer on `main`, exactly the duplicate this action rejects, and checking the PR body covers none of it. Either set the repository to `PR_BODY`, or merge with the body passed explicitly: `gh pr merge <n> --squash --body "$(gh pr view <n> --json body -q .body)"`. The `push`-on-`main` caller above is the only thing that observes the message that actually landed.
 - **Author matching for exemptions is by name, not verified identity.** `%an` is whatever the committer set. The input exists to avoid false failures on bot PRs, not as a security boundary.
 - **Text that *describes* the rule trips it.** The vendor needles are matched as substrings on any line, so a commit message or PR body quoting `noreply@anthropic` + `.com` verbatim fails — as the first version of this action's own PR body did. That is the intended trade: the needles are cheap to match and should never legitimately appear in a commit message. Refer to them descriptively ("the anthropic noreply address", "the Claude Code footer") in prose, and keep the literals in files, which are never scanned.
 
@@ -126,6 +126,7 @@ A single line that matches both a vendor needle and the Claude trailer name is r
 - A checkout with `fetch-depth: 0`, so both ends of the range are in the object database.
 - `git` and `bash`. No network calls, no other tooling.
 - Permissions: `contents: read`.
+- On a repository that squash-merges: either `squash_merge_commit_message: PR_BODY`, so the body this action inspected is the body that lands, or the `--body` discipline above on every merge. Changing the setting needs repository admin; see Limits.
 
 ## Running it locally
 
