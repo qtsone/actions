@@ -1,3 +1,10 @@
+## [1.5.1](https://github.com/qtsone/actions/compare/v1.5.0...v1.5.1) (2026-10-03)
+
+
+### Bug Fixes
+
+* **git/attribution:** default agents list is the post-re-org roster (QTS-776) ([#30](https://github.com/qtsone/actions/issues/30)) ([bcc9ef0](https://github.com/qtsone/actions/commit/bcc9ef0ff09e6ca8590892faa336b5bd306c67e8))
+
 # [1.5.0](https://github.com/qtsone/actions/compare/v1.4.9...v1.5.0) (2026-10-02)
 
 
