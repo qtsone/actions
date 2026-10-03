@@ -51,16 +51,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      # The owner's rule names thirteen agents. The behaviour tests read the list out of
-      # action.yaml rather than copying it, so only its contents need asserting here.
-      - name: Validate the default agent list is the thirteen named agents
+      # The expected list below is the one deliberate copy of the roster: the behaviour tests
+      # read the names out of action.yaml rather than copying them, so without this assertion
+      # nothing would notice the default quietly drifting away from company file §7. Update
+      # both together on a re-org.
+      - name: Validate the default agent list is the current agent roster
         run: |
           set -euo pipefail
           actual=$(yq -r '.inputs.agents.default' git/attribution/action.yaml \
             | sed '/^[[:space:]]*$/d' | tr '\n' ',')
-          expected="Zeus,CPO,CTO,Design Lead,Ledger,Beacon,Lex,Anvil,Casa,Relay,Atlas,Warden,Sentinel,"
+          expected="Zeus,Lex,John,Anvil,Casa,Relay,Atlas,Sentinel,Warden,"
           [ "${actual}" = "${expected}" ] \
-            || { echo "agents default is not the thirteen named agents: '${actual}'" >&2; exit 1; }
+            || { echo "agents default is not the current agent roster: '${actual}'" >&2; exit 1; }
 
           actual=$(yq -r '.inputs.exempt-authors.default' git/attribution/action.yaml \
             | sed '/^[[:space:]]*$/d' | tr '\n' ',')

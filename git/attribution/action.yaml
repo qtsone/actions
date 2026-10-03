@@ -5,22 +5,20 @@ inputs:
     description: >-
       Newline-separated agent names accepted in the trailer. The value is compared exactly
       after an optional ` <email>` suffix is stripped, so a name containing a space works.
-      An empty list is an error rather than "accept anything".
+      An empty list is an error rather than "accept anything". The default is the current
+      agent roster from company file §7; a retired persona must be removed from it, or a
+      terminated identity can still claim authorship.
     required: false
     default: |
       Zeus
-      CPO
-      CTO
-      Design Lead
-      Ledger
-      Beacon
       Lex
+      John
       Anvil
       Casa
       Relay
       Atlas
-      Warden
       Sentinel
+      Warden
   base-sha:
     description: >-
       Exclusive start of the range to check. Defaults to the pull request base; on `push`

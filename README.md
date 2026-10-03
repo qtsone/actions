@@ -103,7 +103,7 @@ Commit and PR attribution gate: exactly one `Co-Authored-By: <Agent Name>` line,
 
 **Contract highlights:**
 - Checks every commit in `base-sha..head-sha` and the PR body; defaults read the range and body straight off the `pull_request` event, so the zero-config call needs only a checkout.
-- Requires exactly one trailer naming one of `Zeus, CPO, CTO, Design Lead, Ledger, Beacon, Lex, Anvil, Casa, Relay, Atlas, Warden, Sentinel`. The trailer key is matched case-insensitively; the name is matched exactly, with an optional ` <email>` suffix stripped.
+- Requires exactly one trailer naming an agent on the current roster, defaulted from company file §7 and declared only in `git/attribution/action.yaml`. The trailer key is matched case-insensitively; the name is matched exactly, with an optional ` <email>` suffix stripped.
 - Rejects `noreply@anthropic.com`, the `Generated with [Claude Code]` footer, and a `Co-Authored-By: Claude` trailer outright.
 - `allow-paperclip-trailer` (default `false`) tolerates one `Co-Authored-By: Paperclip` line, so reversing that decision is a one-line change in each caller.
 - `extra-coauthor-policy` (default `fail`) governs the host-identity `Co-authored-by:` line GitHub appends to a squash commit when the commit author differs from the merger; `warn` lets a repository with existing ones stop new ones first.
