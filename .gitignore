@@ -1,3 +1,4 @@
 .hooks/
 
 .scratch/
+.claude/settings.local.json
