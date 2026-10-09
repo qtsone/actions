@@ -35,6 +35,14 @@ inputs:
     description: 'Adds support for Dockerfile build arguments. Ex: "BUILD_UID=1001'
     required: false
     default: ""
+  ssh:
+    description: >-
+      BuildKit SSH agent sockets or keys to expose to `RUN --mount=type=ssh`, e.g.
+      `default` to forward the caller's SSH_AUTH_SOCK. The key reaches only that RUN, never
+      a layer or the layer cache, which is why a private git dependency uses this and not a
+      build argument.
+    required: false
+    default: ""
   tag-latest:
     description: "Add latest for generated Docker Tag"
     required: false
@@ -138,6 +146,7 @@ runs:
         cache-to: ${{ inputs.cache == 'true' && format('type=registry,mode=max,ref={0}/{1}:cache', inputs.registry, inputs.image-name) || '' }}
         build-args: |
           ${{ inputs.build-args }}
+        ssh: ${{ inputs.ssh }}
 
     - name: Derive action outputs
       id: derive-outputs
