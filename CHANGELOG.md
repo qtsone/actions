@@ -1,3 +1,10 @@
+# [1.10.0](https://github.com/qtsone/actions/compare/v1.9.0...v1.10.0) (2026-10-10)
+
+
+### Features
+
+* **docker/build:** forward BuildKit secrets through a secrets input (QTS-1410) ([#40](https://github.com/qtsone/actions/issues/40)) ([e8ad367](https://github.com/qtsone/actions/commit/e8ad3672b89f924e645235b81f67b7779959e69c)), closes [#36](https://github.com/qtsone/actions/issues/36)
+
 # [1.9.0](https://github.com/qtsone/actions/compare/v1.8.0...v1.9.0) (2026-10-10)
 
 
