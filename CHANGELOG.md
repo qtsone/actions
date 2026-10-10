@@ -1,3 +1,10 @@
+# [1.8.0](https://github.com/qtsone/actions/compare/v1.7.0...v1.8.0) (2026-10-10)
+
+
+### Features
+
+* **git/attribution:** check only agent-account commits and PRs (QTS-1386) ([#38](https://github.com/qtsone/actions/issues/38)) ([f1ca65a](https://github.com/qtsone/actions/commit/f1ca65aeb6155fd57fff1bb6c4682c7905f191bb))
+
 # [1.7.0](https://github.com/qtsone/actions/compare/v1.6.0...v1.7.0) (2026-10-10)
 
 
