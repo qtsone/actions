@@ -118,7 +118,8 @@ jobs:
           [ "${cache_default}" = "true" ]
           [ -z "${extra_tags_default}" ]
           [ -z "${secrets_default}" ]
-          [ "${secrets_with}" = '${{ inputs.secrets }}' ]
+          # Split so Actions does not evaluate the expected expression before the shell sees it.
+          [ "${secrets_with}" = '$''{{ inputs.secrets }}' ]
 
           # Both cache directions have to move together: reading a cache the build never
           # writes silently stops the cache being refreshed.
