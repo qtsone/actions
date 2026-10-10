@@ -29,14 +29,3 @@ jobs:
 
       - name: Attribution
         uses: ./git/attribution
-        with:
-          # A bot's pull request body is upstream release notes, not authored text: it carries
-          # no agent trailer, and a changelog it quotes can contain the vendor footer verbatim.
-          # Its commits are already exempt by author, so the body is skipped on the same
-          # grounds — otherwise this check fails every Renovate pull request, and a required
-          # check that blocks dependency updates gets deleted rather than obeyed.
-          #
-          # Negated on purpose. An empty string is falsy in an Actions expression, so the
-          # obvious `is-bot && '' || body` form falls through to the body for exactly the case
-          # it means to skip.
-          pr-body: ${{ github.event.pull_request.user.type != 'Bot' && github.event.pull_request.body || '' }}

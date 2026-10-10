@@ -80,11 +80,20 @@ jobs:
           [ "${actual}" = "${expected}" ] \
             || { echo "agents default is not the current agent roster: '${actual}'" >&2; exit 1; }
 
-          actual=$(yq -r '.inputs.exempt-authors.default' git/attribution/action.yaml \
+          # Who is checked at all. A dropped address silently exempts that account's commits.
+          actual=$(yq -r '.inputs.agent-accounts.default' git/attribution/action.yaml \
             | sed '/^[[:space:]]*$/d' | tr '\n' ',')
-          expected="renovate[bot],github-actions[bot],dependabot[bot],"
+          expected="336271639+qtsone-developer@users.noreply.github.com,developer@qts.one,"
+          expected+="qtsone-developer@users.noreply.github.com,"
+          expected+="336273553+qtsone-reviewer@users.noreply.github.com,"
+          expected+="qtsone-reviewer@users.noreply.github.com,reviewer@qts.one,"
           [ "${actual}" = "${expected}" ] \
-            || { echo "exempt-authors default changed: '${actual}'" >&2; exit 1; }
+            || { echo "agent-accounts default changed: '${actual}'" >&2; exit 1; }
+
+          actual=$(yq -r '.inputs.agent-logins.default' git/attribution/action.yaml \
+            | sed '/^[[:space:]]*$/d' | tr '\n' ',')
+          [ "${actual}" = "qtsone-developer,qtsone-reviewer," ] \
+            || { echo "agent-logins default changed: '${actual}'" >&2; exit 1; }
 
       - name: Validate remaining input defaults
         run: |
@@ -101,7 +110,7 @@ jobs:
           check_default extra-coauthor-policy "fail"
           check_default legacy-trailer-until "2026-10-24"
 
-          # The three event-derived defaults are what make the zero-config call work, so they
+          # The four event-derived defaults are what make the zero-config call work, so they
           # are asserted too — but an Actions expression written literally in a workflow `run`
           # body is substituted before bash ever sees it, so the delimiter is assembled at
           # runtime and the value compared with the punctuation stripped.
@@ -121,10 +130,11 @@ jobs:
           check_expression base-sha github.event.pull_request.base.sha
           check_expression head-sha github.event.pull_request.head.sha
           check_expression pr-body github.event.pull_request.body
+          check_expression pr-author github.event.pull_request.user.login
 
           # Every input is optional by design: the PR defaults are the whole point, and a
           # required input would make the documented zero-config call fail.
-          for key in agents legacy-trailer-until base-sha head-sha pr-body exempt-authors allow-paperclip-trailer extra-coauthor-policy; do
+          for key in agents legacy-trailer-until base-sha head-sha pr-body pr-author agent-accounts agent-logins allow-paperclip-trailer extra-coauthor-policy; do
             required=$(yq -r ".inputs.\"${key}\".required // \"false\"" git/attribution/action.yaml)
             [ "${required}" = "false" ] || { echo "Input ${key} should be optional" >&2; exit 1; }
           done
