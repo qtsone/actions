@@ -42,6 +42,13 @@ inputs:
     description: "Newline-separated Docker build arguments"
     required: false
     default: ""
+  ssh:
+    description: >-
+      BuildKit SSH agent sockets or keys to expose to `RUN --mount=type=ssh`, e.g.
+      `default` to forward the caller's SSH_AUTH_SOCK. Same contract as docker/build's
+      `ssh`: the key reaches only that RUN, never a layer, the pushed image or the log.
+    required: false
+    default: ""
   preview-push-enabled:
     description: "Push preview image for eligible PRs"
     required: false
@@ -220,6 +227,7 @@ runs:
         tags: ${{ steps.context.outputs.image_tag }}
         build-args: |
           ${{ inputs.build-args }}
+        ssh: ${{ inputs.ssh }}
 
     # Fork PRs and non-PR contexts have no push credentials, so the image stays in the
     # local daemon and is scanned from there. This is the only path that still pays the
@@ -238,6 +246,7 @@ runs:
         tags: ${{ steps.context.outputs.image_tag }}
         build-args: |
           ${{ inputs.build-args }}
+        ssh: ${{ inputs.ssh }}
 
     - name: Run Trivy vulnerability scanner
       id: trivy
