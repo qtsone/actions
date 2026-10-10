@@ -2,8 +2,8 @@
 #
 # Behavioural tests for git/attribution. The check decides whether a PR can be merged, so the
 # cases that matter are the shapes real tooling produces: the Claude Code trailer and footer,
-# the host-identity co-author GitHub appends to a squash commit, and a renovate commit that
-# legitimately carries no agent trailer.
+# the host-identity co-author GitHub appends to a squash commit, and commits and PRs by people
+# and bots, which are not agent work and are not checked at all.
 
 set -euo pipefail
 
@@ -11,7 +11,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 ATTRIBUTION_SCRIPT="$ROOT_DIR/git/attribution/scripts/attribution.sh"
 ACTION_YAML="$ROOT_DIR/git/attribution/action.yaml"
 
-# The agent and exempt-author lists are declared once, in action.yaml, and read from there
+# The agent, agent-account and agent-login lists are declared once, in action.yaml, and read from there
 # rather than copied here. The script deliberately defaults neither, so the action metadata is
 # the only definition — and a test that hard-coded its own copy would keep passing after the
 # list callers actually get had changed.
@@ -28,7 +28,12 @@ action_default_list() {
 }
 
 DEFAULT_AGENTS="$(action_default_list agents)"
-DEFAULT_EXEMPT_AUTHORS="$(action_default_list exempt-authors)"
+DEFAULT_AGENT_ACCOUNTS="$(action_default_list agent-accounts)"
+DEFAULT_AGENT_LOGINS="$(action_default_list agent-logins)"
+
+# What an agent's branch commits are authored as (company file §10).
+AGENT_AUTHOR="Atlas (QTS agent) <336271639+qtsone-developer@users.noreply.github.com>"
+OWNER_AUTHOR="Iulian Bacalu <ibacalu@icloud.com>"
 
 # The trailer line for a roster name, built from the default roster for the same reason.
 trailer_for() {
@@ -65,17 +70,16 @@ setup_repo() {
 $ATLAS"
 }
 
-# Appends one commit whose message is $1, authored by $2 (default a plain agent identity).
-# --allow-empty keeps the fixtures about the message, which is all the script reads.
+# Appends one commit whose message is $1, authored by $2 (`Name <email>`, default an agent).
+# --allow-empty keeps the fixtures about the message and author, which is all the script reads.
 commit_msg() {
-  local message="$1" author="${2:-contract-test}"
-  git -C "$REPO" commit -q --allow-empty \
-    --author="${author} <${author// /.}@example.invalid>" -F - <<< "$message"
+  local message="$1" author="${2:-$AGENT_AUTHOR}"
+  git -C "$REPO" commit -q --allow-empty --author="${author}" -F - <<< "$message"
 }
 
-# Runs the script over HEAD~1..HEAD with the default agent list and no cut-over grace. Extra
-# NAME=VALUE arguments override anything set here, because env applies assignments left to
-# right.
+# Runs the script over HEAD~1..HEAD with the default lists, a PR opened by an agent, and no
+# cut-over grace. Extra NAME=VALUE arguments override anything set here, because env applies
+# assignments left to right.
 LAST_OUT=""
 attribution() {
   local base head rc
@@ -84,7 +88,8 @@ attribution() {
   set +e
   LAST_OUT="$(
     cd "$REPO" && env -u GITHUB_STEP_SUMMARY -u GITHUB_OUTPUT \
-      AGENTS="$DEFAULT_AGENTS" EXEMPT_AUTHORS="$DEFAULT_EXEMPT_AUTHORS" LEGACY_TRAILER_UNTIL='' \
+      AGENTS="$DEFAULT_AGENTS" AGENT_ACCOUNTS="$DEFAULT_AGENT_ACCOUNTS" \
+      AGENT_LOGINS="$DEFAULT_AGENT_LOGINS" PR_AUTHOR=qtsone-developer LEGACY_TRAILER_UNTIL='' \
       BASE_SHA="$base" HEAD_SHA="$head" "$@" \
       bash "$ATTRIBUTION_SCRIPT" 2>&1
   )"
@@ -134,8 +139,11 @@ main() {
   # agent list rather than on the behaviour it is testing.
   [[ "$ATLAS" == *"+qts-atlas[bot]@users.noreply.github.com>" ]] \
     || { printf 'FAIL: could not read the agents default out of %s\n' "$ACTION_YAML" >&2; exit 1; }
-  [[ "$DEFAULT_EXEMPT_AUTHORS" == *"renovate[bot]"* ]] \
-    || { printf 'FAIL: could not read the exempt-authors default out of %s\n' "$ACTION_YAML" >&2; exit 1; }
+  local agent_email="${AGENT_AUTHOR#*<}"
+  [[ $'\n'"$DEFAULT_AGENT_ACCOUNTS"$'\n' == *$'\n'"${agent_email%>}"$'\n'* ]] \
+    || { printf 'FAIL: could not read the agent-accounts default out of %s\n' "$ACTION_YAML" >&2; exit 1; }
+  [[ "$DEFAULT_AGENT_LOGINS" == *qtsone-developer* ]] \
+    || { printf 'FAIL: could not read the agent-logins default out of %s\n' "$ACTION_YAML" >&2; exit 1; }
   setup_repo
 
   # The shape every agent commit is supposed to have.
@@ -268,17 +276,43 @@ Adds the thing.
 $ATLAS"
   assert_ok "a Warden squash with the one appended trailer passes on main" PR_BODY=''
 
-  # Renovate cannot be asked to write an agent trailer, and blocking its PRs on one would
-  # only get the check removed.
-  commit_msg "chore(deps): bump something" "renovate[bot]"
-  assert_ok "a renovate-authored commit is exempt from the agent trailer"
-  assert_fails_with "missing the required trailer" "the exemption is by author, not blanket" \
-    EXEMPT_AUTHORS='dependabot[bot]'
-  # Exempt only from the trailer requirement; a vendor line is still a vendor line.
-  commit_msg "chore(deps): bump something
+  # Only agent work is checked (owner, QTS-1381). A person's or a bot's commit is skipped
+  # whole, vendor lines included.
+  commit_msg "feat: the owner's own change" "$OWNER_AUTHOR"
+  assert_ok_with "skipped: not an agent account" "an owner commit with no trailer passes"
+  commit_msg "feat: the owner's own change
 
-Co-Authored-By: Claude <noreply@anthropic.com>" "renovate[bot]"
-  assert_fails_with "vendor attribution is not allowed" "vendor checks still apply to an exempt author"
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+Co-Authored-By: Claude <noreply@anthropic.com>" "$OWNER_AUTHOR"
+  assert_ok "an owner commit carrying the Claude Code footer passes"
+  commit_msg "chore(deps): bump something" "renovate[bot] <29139614+renovate[bot]@users.noreply.github.com>"
+  assert_ok "a renovate commit passes"
+  # The squash identity of an agent PR on `main`, and the email matched case-insensitively.
+  commit_msg "feat: squashed agent PR without a trailer (#101)" "qtsone-developer <developer@qts.one>"
+  assert_fails_with "missing the required trailer" "a developer@qts.one commit without a trailer fails"
+  commit_msg "feat: shouted email" "qtsone-developer <Developer@QTS.one>"
+  assert_fails_with "missing the required trailer" "the author email is matched case-insensitively"
+  # Scope follows the email: a name is free text, so renaming must neither dodge nor trigger it.
+  commit_msg "feat: agent account under a person's name" "Iulian Bacalu <developer@qts.one>"
+  assert_fails_with "missing the required trailer" "an agent email under another name is still checked"
+  commit_msg "feat: a person under an agent's name" "Atlas (QTS agent) <ibacalu@icloud.com>"
+  assert_ok_with "skipped: not an agent account" "an agent name on a person's email is skipped"
+  assert_fails_with "missing the required trailer" "agent-accounts replaces the default list" \
+    AGENT_ACCOUNTS='ibacalu@icloud.com'
+
+  # The PR body is checked only on a PR an agent account opened.
+  commit_msg "feat: clean commit
+
+$ATLAS"
+  assert_ok_with "skipped: not an agent account" "a body co-author on a PR opened by the owner passes" \
+    PR_AUTHOR=ibacalu PR_BODY=$'Adds the thing.\n\nCo-authored-by: someone <someone@example.invalid>'
+  assert_fails_with "must not carry a Co-authored-by" "the same body on a PR opened by qtsone-developer fails" \
+    PR_AUTHOR=qtsone-developer PR_BODY=$'Adds the thing.\n\nCo-authored-by: someone <someone@example.invalid>'
+  assert_fails_with "must not carry a Co-authored-by" "the PR author login is matched case-insensitively" \
+    PR_AUTHOR=QTSone-Reviewer PR_BODY=$'Adds the thing.\n\nCo-authored-by: someone <someone@example.invalid>'
+  assert_ok_with "skipped: not an agent account" "an empty pr-author skips the body check" \
+    PR_AUTHOR='' PR_BODY=$'Adds the thing.\n\nCo-authored-by: someone <someone@example.invalid>'
 
   # No name on the current roster contains a space, so this drives the capability through a
   # caller-supplied `agents` input — which is how a future multi-word name would arrive — and
@@ -344,6 +378,10 @@ Co-authored-by: iulian <iulian@iulian-macbook.local>"
     ALLOW_PAPERCLIP_TRAILER=yes
   assert_fails_with "agents lists no names" "an empty agents list is an error, not 'accept anything'" \
     AGENTS='   '
+  assert_fails_with "agent-accounts lists no emails" "an empty agent-accounts list is an error, not 'skip everything'" \
+    AGENT_ACCOUNTS='   '
+  assert_fails_with "agent-logins lists no logins" "an empty agent-logins list is an error, not 'skip every body'" \
+    AGENT_LOGINS='   '
   assert_fails_with "nothing to check" "an empty range with an empty body is an error" \
     BASE_SHA="$(git -C "$REPO" rev-parse HEAD)"
   assert_fails_with "fetch-depth" "a sha that is not present locally names the likely cause" \

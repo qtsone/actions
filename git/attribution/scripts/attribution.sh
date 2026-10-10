@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 #
-# Enforce attribution on every commit in a range and on the PR body. Each commit carries
-# exactly one `Co-authored-by: <Name> <email>` line matching a roster pair, and nothing else
-# in that role. The PR body carries no `Co-authored-by:` line at all: the squash puts the body
-# on `main`, and the merge step appends the one trailer read from the branch commits.
+# Enforce attribution on the agent-authored commits in a range and on an agent's PR body. Each
+# such commit carries exactly one `Co-authored-by: <Name> <email>` line matching a roster pair,
+# and nothing else in that role. The PR body carries no `Co-authored-by:` line at all: the
+# squash puts the body on `main`, and the merge step appends the one trailer read from the
+# branch commits. Commits and PRs by anyone else are not agent work and are skipped.
+#
+# ⚠️ Scope is decided by author email (`%ae`), never by name: `%an` is free text, so a name
+# allowlist could be dodged by renaming, while setting an agent email only opts into checks.
 #
 # ⚠️ A roster name with the wrong or no email is an error, not a pass: GitHub links a
 # co-author to an account only through the email, so `Co-authored-by: Atlas` alone credits
@@ -78,12 +82,14 @@ parse_list() {
   done <<< "${1:-}"
 }
 
+# Case-insensitive: emails and GitHub logins both are.
 list_contains() {
-  local needle="$1"
+  local needle
+  needle="$(lower "$1")"
   shift
   local item
   for item in "$@"; do
-    [ "${item}" = "${needle}" ] || continue
+    [ "$(lower "${item}")" = "${needle}" ] || continue
     return 0
   done
   return 1
@@ -134,7 +140,7 @@ target_legacy() {
 # Inspects one commit message (kind `commit`) or PR body (kind `body`). Sets CHECK_ERRORS,
 # CHECK_RESULT and CHECK_AGENT for the summary row the caller appends.
 check_message() {
-  local label="$1" exempt="$2" kind="$3" message="$4"
+  local label="$1" kind="$2" message="$3"
   CHECK_LABEL="${label}"
   CHECK_ERRORS=0
   CHECK_RESULT=""
@@ -213,8 +219,6 @@ check_message() {
 
   if [ "${kind}" = "body" ]; then
     :
-  elif [ "${exempt}" = "true" ]; then
-    add_result "exempt author"
   elif [ "${agent_hits}" -eq 0 ]; then
     target_error "missing the required trailer line 'Co-authored-by: <Name> <email>' for one of: ${AGENTS_SUMMARY} (pairs in the action's agents input)" \
       "missing agent trailer"
@@ -285,11 +289,14 @@ if [ -n "${LEGACY_UNTIL}" ]; then
   fi
 fi
 
-parse_list "${EXEMPT_AUTHORS:-}"
-EXEMPT_LIST=()
-if [ "${#PARSED_LIST[@]}" -gt 0 ]; then
-  EXEMPT_LIST=("${PARSED_LIST[@]}")
-fi
+# An empty allowlist would skip every commit and pass everything, silently.
+parse_list "${AGENT_ACCOUNTS:-}"
+[ "${#PARSED_LIST[@]}" -gt 0 ] || fatal "agent-accounts lists no emails — refusing to skip every commit"
+AGENT_ACCOUNT_LIST=("${PARSED_LIST[@]}")
+
+parse_list "${AGENT_LOGINS:-}"
+[ "${#PARSED_LIST[@]}" -gt 0 ] || fatal "agent-logins lists no logins — refusing to skip every PR body"
+AGENT_LOGIN_LIST=("${PARSED_LIST[@]}")
 
 ALLOW_PAPERCLIP="$(trim "${ALLOW_PAPERCLIP_TRAILER:-false}")"
 case "${ALLOW_PAPERCLIP}" in
@@ -306,6 +313,7 @@ esac
 base_sha="$(trim "${BASE_SHA:-}")"
 head_sha="$(trim "${HEAD_SHA:-}")"
 pr_body="${PR_BODY:-}"
+pr_author="$(trim "${PR_AUTHOR:-}")"
 
 if [ -n "${base_sha}" ] && [ -z "${head_sha}" ]; then
   fatal "base-sha is set but head-sha is empty — the range to check is undefined"
@@ -330,23 +338,31 @@ if [ -z "${commits}" ] && [ -z "$(trim "${pr_body}")" ]; then
 fi
 
 commit_count=0
+skipped_count=0
 while IFS= read -r sha; do
   [ -n "${sha}" ] || continue
   commit_count=$((commit_count + 1))
-  author="$(git log -1 --format='%an' "${sha}")"
-  exempt=false
-  if [ "${#EXEMPT_LIST[@]}" -gt 0 ] && list_contains "${author}" "${EXEMPT_LIST[@]}"; then
-    exempt=true
+  author="$(git log -1 --format='%an <%ae>' "${sha}")"
+  if ! list_contains "$(git log -1 --format='%ae' "${sha}")" "${AGENT_ACCOUNT_LIST[@]}"; then
+    skipped_count=$((skipped_count + 1))
+    printf '%s (%s): skipped: not an agent account\n' "${sha}" "${author}"
+    add_row "\`${sha:0:9}\`" "${author}" "—" "skipped: not an agent account"
+    continue
   fi
-  check_message "${sha}" "${exempt}" commit "$(git log -1 --format='%B' "${sha}")"
+  check_message "${sha}" commit "$(git log -1 --format='%B' "${sha}")"
   add_row "\`${sha:0:9}\`" "${author}" "${CHECK_AGENT:-—}" "${CHECK_RESULT}"
 done <<< "${commits}"
 
 body_checked=0
 if [ -n "$(trim "${pr_body}")" ]; then
-  body_checked=1
-  check_message "PR body" "false" body "${pr_body}"
-  add_row "PR body" "—" "${CHECK_AGENT:-—}" "${CHECK_RESULT}"
+  if [ -n "${pr_author}" ] && list_contains "${pr_author}" "${AGENT_LOGIN_LIST[@]}"; then
+    body_checked=1
+    check_message "PR body" body "${pr_body}"
+    add_row "PR body" "${pr_author}" "${CHECK_AGENT:-—}" "${CHECK_RESULT}"
+  else
+    printf 'PR body (%s): skipped: not an agent account\n' "${pr_author:-no PR author}"
+    add_row "PR body" "${pr_author:-—}" "—" "skipped: not an agent account"
+  fi
 fi
 
 {
@@ -362,5 +378,5 @@ if [ "${ERRORS}" -gt 0 ]; then
   exit 1
 fi
 
-printf 'attribution ok: %d commit(s) and %d PR body checked, %d warning(s)\n' \
-  "${commit_count}" "${body_checked}" "${WARNINGS}" >&2
+printf 'attribution ok: %d commit(s) (%d skipped: not an agent account) and %d PR body checked, %d warning(s)\n' \
+  "${commit_count}" "${skipped_count}" "${body_checked}" "${WARNINGS}" >&2

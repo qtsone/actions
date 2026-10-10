@@ -1,5 +1,5 @@
 name: "Git Attribution"
-description: "Require exactly one roster Co-authored-by: <Name> <email> line on every commit, none in the PR body, and reject vendor or host-identity attribution"
+description: "On agent-account commits and PRs, require exactly one roster Co-authored-by: <Name> <email> line per commit, none in the PR body, and reject vendor or host-identity attribution"
 inputs:
   agents:
     description: >-
@@ -46,15 +46,34 @@ inputs:
       `push` caller wants. The Claude Code footer lands here more often than in a commit.
     required: false
     default: ${{ github.event.pull_request.body }}
-  exempt-authors:
+  pr-author:
     description: >-
-      Newline-separated commit author names (`%an`) that skip the agent-trailer requirement.
-      The vendor, Paperclip and extra-co-author checks still apply to their commits.
+      Login of the pull request author. The body is checked only when it is on
+      `agent-logins`; empty (a `push` caller) skips the body check.
+    required: false
+    default: ${{ github.event.pull_request.user.login }}
+  agent-accounts:
+    description: >-
+      Newline-separated author emails (`%ae`, case-insensitive) that agents commit as. Only
+      commits authored by one of them are checked; every other commit is skipped. Lists every
+      address the two shared accounts appear under: the per-account noreply agents set on
+      branch commits, and the account email GitHub uses for a squash or release commit.
     required: false
     default: |
-      renovate[bot]
-      github-actions[bot]
-      dependabot[bot]
+      336271639+qtsone-developer@users.noreply.github.com
+      developer@qts.one
+      qtsone-developer@users.noreply.github.com
+      336273553+qtsone-reviewer@users.noreply.github.com
+      qtsone-reviewer@users.noreply.github.com
+      reviewer@qts.one
+  agent-logins:
+    description: >-
+      Newline-separated GitHub logins (case-insensitive) that agents open pull requests as.
+      Only a body whose `pr-author` is one of them is checked.
+    required: false
+    default: |
+      qtsone-developer
+      qtsone-reviewer
   allow-paperclip-trailer:
     description: >-
       When `true`, one `Co-Authored-By: Paperclip <noreply@paperclip.ing>` line is tolerated
@@ -84,7 +103,9 @@ runs:
         BASE_SHA: ${{ inputs.base-sha }}
         HEAD_SHA: ${{ inputs.head-sha }}
         PR_BODY: ${{ inputs.pr-body }}
-        EXEMPT_AUTHORS: ${{ inputs.exempt-authors }}
+        PR_AUTHOR: ${{ inputs.pr-author }}
+        AGENT_ACCOUNTS: ${{ inputs.agent-accounts }}
+        AGENT_LOGINS: ${{ inputs.agent-logins }}
         ALLOW_PAPERCLIP_TRAILER: ${{ inputs.allow-paperclip-trailer }}
         EXTRA_COAUTHOR_POLICY: ${{ inputs.extra-coauthor-policy }}
       run: ${{ github.action_path }}/scripts/attribution.sh

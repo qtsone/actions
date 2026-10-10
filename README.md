@@ -102,12 +102,12 @@ Commit and PR attribution gate: exactly one `Co-Authored-By: <Agent Name>` line,
 **Location:** `qtsone/actions/git/attribution@main`
 
 **Contract highlights:**
-- Checks every commit in `base-sha..head-sha` and the PR body; defaults read the range and body straight off the `pull_request` event, so the zero-config call needs only a checkout.
+- Checks the agent-authored commits in `base-sha..head-sha` and an agent's PR body; defaults read the range and body straight off the `pull_request` event, so the zero-config call needs only a checkout.
 - Requires exactly one trailer naming an agent on the current roster, defaulted from company file §7 and declared only in `git/attribution/action.yaml`. The trailer key is matched case-insensitively; the name is matched exactly, with an optional ` <email>` suffix stripped.
 - Rejects `noreply@anthropic.com`, the `Generated with [Claude Code]` footer, and a `Co-Authored-By: Claude` trailer outright.
 - `allow-paperclip-trailer` (default `false`) tolerates one `Co-Authored-By: Paperclip` line, so reversing that decision is a one-line change in each caller.
 - `extra-coauthor-policy` (default `fail`) governs the host-identity `Co-authored-by:` line GitHub appends to a squash commit when the commit author differs from the merger; `warn` lets a repository with existing ones stop new ones first.
-- `exempt-authors` (default the three bots) skips the agent-trailer requirement for bot commits; the vendor and Paperclip checks still apply to them.
+- `agent-accounts` (author emails) and `agent-logins` (PR authors) default to the two shared agent accounts; every other commit and PR body — the owner's, Renovate's — is skipped entirely.
 - Fails loudly rather than degrading: an empty agent list, an unparseable range, and an empty range with an empty body are all errors, because a check that inspected nothing must not render as a green tick.
 - Requires `fetch-depth: 0`; a shallow checkout fails with a message naming the fix.
 
