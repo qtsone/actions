@@ -1,3 +1,10 @@
+# [1.7.0](https://github.com/qtsone/actions/compare/v1.6.0...v1.7.0) (2026-10-10)
+
+
+### Features
+
+* **git/attribution:** require roster Name <email> pairs, no trailer in the PR body; add squash-merge (QTS-1383) ([#37](https://github.com/qtsone/actions/issues/37)) ([10d72b4](https://github.com/qtsone/actions/commit/10d72b4747bc84da4e52ce427a955e5692e61276))
+
 # [1.6.0](https://github.com/qtsone/actions/compare/v1.5.1...v1.6.0) (2026-10-09)
 
 
