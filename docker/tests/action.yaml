@@ -49,6 +49,13 @@ inputs:
       `ssh`: the key reaches only that RUN, never a layer, the pushed image or the log.
     required: false
     default: ""
+  secrets:
+    description: >-
+      Newline-separated `id=value` BuildKit secrets for `RUN --mount=type=secret,id=<id>`,
+      e.g. a registry token for a private package. Same contract as docker/build's
+      `secrets`: the value reaches only that RUN, never a layer, the pushed image or the log.
+    required: false
+    default: ""
   preview-push-enabled:
     description: "Push preview image for eligible PRs"
     required: false
@@ -228,6 +235,7 @@ runs:
         build-args: |
           ${{ inputs.build-args }}
         ssh: ${{ inputs.ssh }}
+        secrets: ${{ inputs.secrets }}
 
     # Fork PRs and non-PR contexts have no push credentials, so the image stays in the
     # local daemon and is scanned from there. This is the only path that still pays the
@@ -247,6 +255,7 @@ runs:
         build-args: |
           ${{ inputs.build-args }}
         ssh: ${{ inputs.ssh }}
+        secrets: ${{ inputs.secrets }}
 
     - name: Run Trivy vulnerability scanner
       id: trivy
