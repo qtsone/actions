@@ -113,8 +113,12 @@ jobs:
 
           cache_default=$(yq -r '.inputs.cache.default // ""' docker/build/action.yaml)
           extra_tags_default=$(yq -r '.inputs."extra-tags".default // ""' docker/build/action.yaml)
+          secrets_default=$(yq -r '.inputs.secrets.default // ""' docker/build/action.yaml)
+          secrets_with=$(yq -r '.runs.steps[] | select(.id == "build-and-push") | .with.secrets // ""' docker/build/action.yaml)
           [ "${cache_default}" = "true" ]
           [ -z "${extra_tags_default}" ]
+          [ -z "${secrets_default}" ]
+          [ "${secrets_with}" = '${{ inputs.secrets }}' ]
 
           # Both cache directions have to move together: reading a cache the build never
           # writes silently stops the cache being refreshed.
