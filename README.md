@@ -13,7 +13,7 @@ Collection of reusable GitHub Actions for standardized workflows.
 | `docker/promote` | Republish an image the registry already holds under release tags, no rebuild | Optional, on a content-id hit | `packages: write` (the job must also log in to the registry) |
 | `docker/build` | Build and push release image, emit canonical image outputs | Release-published gate, or a content-id miss | `packages: write` |
 | `kustomize/update-image` | Mutate overlay image reference and write back to Git | After image build output is available | `contents: write` |
-| `git/attribution` | Require one `Co-Authored-By: <Agent Name>` line per commit and PR body; reject vendor and host-identity trailers | `pull_request`, outside the delivery chain | None beyond `contents: read`; needs `fetch-depth: 0` so both ends of `base..head` are present |
+| `git/attribution` | Require one roster `Co-authored-by: <Name> <email>` line per commit and none in the PR body; reject vendor and host-identity trailers. Warden merges with `scripts/squash-merge.sh` | `pull_request`, outside the delivery chain | None beyond `contents: read`; needs `fetch-depth: 0` so both ends of `base..head` are present |
 
 Release call order for app repositories is: `release -> docker/build -> kustomize/update-image`.
 

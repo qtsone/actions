@@ -30,6 +30,14 @@ action_default_list() {
 DEFAULT_AGENTS="$(action_default_list agents)"
 DEFAULT_EXEMPT_AUTHORS="$(action_default_list exempt-authors)"
 
+# The trailer line for a roster name, built from the default roster for the same reason.
+trailer_for() {
+  printf 'Co-authored-by: %s\n' "$(printf '%s\n' "$DEFAULT_AGENTS" | grep "^$1 <")"
+}
+ATLAS="$(trailer_for Atlas)"
+WARDEN="$(trailer_for Warden)"
+JOHN="$(trailer_for John)"
+
 FAILURES=0
 pass() { printf 'PASS: %s\n' "$1"; }
 fail() { printf 'FAIL: %s\n' "$1" >&2; FAILURES=$((FAILURES + 1)); }
@@ -54,7 +62,7 @@ setup_repo() {
   git -C "$REPO" config user.name "contract-test"
   git -C "$REPO" commit -q --allow-empty -m "seed
 
-Co-Authored-By: Atlas"
+$ATLAS"
 }
 
 # Appends one commit whose message is $1, authored by $2 (default a plain agent identity).
@@ -65,8 +73,9 @@ commit_msg() {
     --author="${author} <${author// /.}@example.invalid>" -F - <<< "$message"
 }
 
-# Runs the script over HEAD~1..HEAD with the default agent list. Extra NAME=VALUE arguments
-# override anything set here, because env applies assignments left to right.
+# Runs the script over HEAD~1..HEAD with the default agent list and no cut-over grace. Extra
+# NAME=VALUE arguments override anything set here, because env applies assignments left to
+# right.
 LAST_OUT=""
 attribution() {
   local base head rc
@@ -75,7 +84,7 @@ attribution() {
   set +e
   LAST_OUT="$(
     cd "$REPO" && env -u GITHUB_STEP_SUMMARY -u GITHUB_OUTPUT \
-      AGENTS="$DEFAULT_AGENTS" EXEMPT_AUTHORS="$DEFAULT_EXEMPT_AUTHORS" \
+      AGENTS="$DEFAULT_AGENTS" EXEMPT_AUTHORS="$DEFAULT_EXEMPT_AUTHORS" LEGACY_TRAILER_UNTIL='' \
       BASE_SHA="$base" HEAD_SHA="$head" "$@" \
       bash "$ATTRIBUTION_SCRIPT" 2>&1
   )"
@@ -123,7 +132,7 @@ main() {
   [[ -f "$ACTION_YAML" ]] || { printf 'FAIL: missing %s\n' "$ACTION_YAML" >&2; exit 1; }
   # A reader that silently returned nothing would make every case below fail on an empty
   # agent list rather than on the behaviour it is testing.
-  [[ "$DEFAULT_AGENTS" == *"Atlas"* ]] \
+  [[ "$ATLAS" == *"+qts-atlas[bot]@users.noreply.github.com>" ]] \
     || { printf 'FAIL: could not read the agents default out of %s\n' "$ACTION_YAML" >&2; exit 1; }
   [[ "$DEFAULT_EXEMPT_AUTHORS" == *"renovate[bot]"* ]] \
     || { printf 'FAIL: could not read the exempt-authors default out of %s\n' "$ACTION_YAML" >&2; exit 1; }
@@ -132,11 +141,30 @@ main() {
   # The shape every agent commit is supposed to have.
   commit_msg "feat: a change
 
-Co-Authored-By: Atlas"
-  assert_ok "a single agent trailer passes"
+$ATLAS"
+  assert_ok "a roster name with its email passes"
   # The sha has to be in the annotation, or a failing PR with twenty commits says nothing
   # about which one to amend.
   assert_ok_with "$(git -C "$REPO" rev-parse --short=9 HEAD)" "the summary row names the commit"
+
+  # The email is what makes GitHub show the co-author; without it the trailer credits nobody.
+  commit_msg "feat: name only
+
+Co-authored-by: Atlas"
+  assert_fails_with "has no email" "a roster name without an email fails"
+  assert_fails_with "$ATLAS" "the missing-email error spells out the expected line"
+  commit_msg "feat: wrong email
+
+Co-authored-by: Atlas <atlas@qts.one>"
+  assert_fails_with "wrong email" "a roster name with another email fails"
+  commit_msg "feat: another agent's email
+
+Co-authored-by: Atlas ${WARDEN#*Warden }"
+  assert_fails_with "wrong email" "a roster name with another agent's email fails"
+  commit_msg "feat: email in capitals
+
+$(printf '%s' "$ATLAS" | tr '[:lower:]' '[:upper:]' | sed 's/^CO-AUTHORED-BY: ATLAS/Co-authored-by: Atlas/')"
+  assert_ok "the email is compared case-insensitively"
 
   commit_msg "feat: no attribution at all"
   assert_fails_with "missing the required trailer" "a commit with no agent trailer fails"
@@ -144,8 +172,8 @@ Co-Authored-By: Atlas"
 
   commit_msg "feat: two agents
 
-Co-Authored-By: Atlas
-Co-Authored-By: Warden"
+$ATLAS
+$WARDEN"
   assert_fails_with "found 2" "two agent trailers fail"
 
   # What Claude Code writes unless told otherwise.
@@ -158,19 +186,19 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
   # still be reported once — a doubled annotation reads as two separate problems to fix.
   commit_msg "feat: vendor trailer alongside a valid one
 
-Co-Authored-By: Atlas
+$ATLAS
 Co-Authored-By: Claude <noreply@anthropic.com>"
   assert_fails_with "1 error(s)" "a vendor trailer carrying the anthropic address is reported once"
 
   commit_msg "feat: vendor trailer without the address
 
-Co-Authored-By: Atlas
+$ATLAS
 Co-Authored-By: Claude"
   assert_fails_with "vendor attribution is not allowed" "a bare 'Co-Authored-By: Claude' fails"
 
   commit_msg "feat: paperclip
 
-Co-Authored-By: Atlas
+$ATLAS
 Co-Authored-By: Paperclip <noreply@paperclip.ing>"
   assert_fails_with "Paperclip' is not allowed" "a Paperclip trailer fails by default"
   assert_ok "a Paperclip trailer passes when allow-paperclip-trailer is true" \
@@ -178,24 +206,67 @@ Co-Authored-By: Paperclip <noreply@paperclip.ing>"
   # The input tolerates one line, not a pile of them.
   commit_msg "feat: two paperclips
 
-Co-Authored-By: Atlas
+$ATLAS
 Co-Authored-By: Paperclip <noreply@paperclip.ing>
 Co-Authored-By: Paperclip <noreply@paperclip.ing>"
   assert_fails_with "tolerates one" "a second Paperclip trailer fails even when allowed" \
     ALLOW_PAPERCLIP_TRAILER=true
 
-  # The footer lands in the PR body far more often than in a commit message.
+  # The squash puts the PR body on `main` and the merge appends the trailer read from the
+  # branch commits, so any trailer already in the body would land twice or unchecked.
   commit_msg "feat: clean commit
 
-Co-Authored-By: Atlas"
+$ATLAS"
+  assert_ok "a PR body with no trailer passes" PR_BODY='Adds the thing.'
+  assert_fails_with "must not carry a Co-authored-by" "a PR body carrying the correct trailer fails" \
+    PR_BODY=$'Adds the thing.\n\n'"$ATLAS"
+  assert_fails_with "must not carry a Co-authored-by" "a PR body carrying the old name-only trailer fails" \
+    PR_BODY=$'Adds the thing.\n\nCo-Authored-By: Atlas'
+  assert_fails_with "must not carry a Co-authored-by" "a PR body carrying a non-agent co-author fails" \
+    PR_BODY=$'Adds the thing.\n\nCo-authored-by: someone <someone@example.invalid>' EXTRA_COAUTHOR_POLICY=warn
+  assert_fails_with "must not carry a Co-authored-by" "a PR body carrying a Paperclip trailer fails even when allowed" \
+    PR_BODY=$'Adds the thing.\n\nCo-Authored-By: Paperclip <noreply@paperclip.ing>' ALLOW_PAPERCLIP_TRAILER=true
+  # The footer lands in the PR body far more often than in a commit message.
   assert_fails_with "vendor attribution is not allowed" "the Claude Code footer in the PR body fails" \
-    PR_BODY=$'Adds the thing.\n\nCo-Authored-By: Atlas\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)'
+    PR_BODY=$'Adds the thing.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)'
   assert_fails_with "PR body" "the PR body error is labelled as the PR body" \
     PR_BODY=$'Adds the thing.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)'
-  assert_fails_with "missing the required trailer" "a PR body with no agent trailer fails" \
-    PR_BODY='Adds the thing.'
-  assert_ok "a compliant PR body passes" PR_BODY=$'Adds the thing.\n\nCo-Authored-By: Atlas'
   assert_ok "an empty pr-body skips the body check" PR_BODY=''
+
+  # Cut-over: a pull request opened under the old rule has name-only commit trailers and the
+  # trailer in its body. Before legacy-trailer-until both only warn; from that day both fail.
+  commit_msg "feat: opened before the cut-over
+
+Co-Authored-By: Atlas"
+  assert_ok_with "tolerated until 2999-01-01" "a name-only trailer warns inside the grace window" \
+    LEGACY_TRAILER_UNTIL=2999-01-01 PR_BODY=$'Adds the thing.\n\nCo-Authored-By: Atlas'
+  assert_fails_with "has no email" "a name-only trailer fails once the grace window has passed" \
+    LEGACY_TRAILER_UNTIL=2000-01-01
+  assert_fails_with "must not carry a Co-authored-by" "a body trailer fails once the grace window has passed" \
+    LEGACY_TRAILER_UNTIL=2000-01-01 PR_BODY=$'Adds the thing.\n\n'"$ATLAS"
+  # The grace covers the old agent trailer only; it never lets a stranger into the body.
+  assert_fails_with "must not carry a Co-authored-by" "the grace window does not tolerate a non-agent body co-author" \
+    LEGACY_TRAILER_UNTIL=2999-01-01 PR_BODY=$'Adds the thing.\n\nCo-authored-by: someone <someone@example.invalid>'
+  assert_fails_with "must be a YYYY-MM-DD date" "a malformed legacy-trailer-until is an error" \
+    LEGACY_TRAILER_UNTIL=24/10/2026
+
+  # The squash commit `main` gets from an owner merge in the browser: the PR body, then the
+  # lines GitHub appends — the agent trailer from the branch commits and the branch author's
+  # host identity. The `push` callers run with extra-coauthor-policy=warn for exactly this.
+  commit_msg "feat: merged in the web UI (#99)
+
+Adds the thing.
+
+$ATLAS
+Co-authored-by: qtsone-developer <developer@qts.one>"
+  assert_ok_with "::warning::" "GitHub-appended lines on a web-UI squash are tolerated on main" \
+    PR_BODY='' EXTRA_COAUTHOR_POLICY=warn
+  commit_msg "feat: merged by Warden (#100)
+
+Adds the thing.
+
+$ATLAS"
+  assert_ok "a Warden squash with the one appended trailer passes on main" PR_BODY=''
 
   # Renovate cannot be asked to write an agent trailer, and blocking its PRs on one would
   # only get the check removed.
@@ -214,8 +285,11 @@ Co-Authored-By: Claude <noreply@anthropic.com>" "renovate[bot]"
   # not through a default-roster name that a re-org can delete.
   commit_msg "feat: multi-word agent name
 
-Co-Authored-By: Multi Word Agent"
-  assert_ok "an agent name containing a space passes" AGENTS=$'Multi Word Agent\nAtlas'
+Co-authored-by: Multi Word Agent <multi@example.invalid>"
+  assert_ok "an agent name containing a space passes" \
+    AGENTS=$'Multi Word Agent <multi@example.invalid>\nAtlas <atlas@example.invalid>'
+  assert_fails_with "is not 'Name <email>'" "a roster entry without an email is an error" \
+    AGENTS=$'Multi Word Agent\nAtlas <atlas@example.invalid>'
 
   # Roster drift is what this action gets wrong when nothing checks it: on the 2026-10-02
   # re-org the default still rejected John — a live agent whose CI would have gone red on
@@ -223,25 +297,24 @@ Co-Authored-By: Multi Word Agent"
   # against the default list, so the next re-org fails here rather than in a product repo.
   commit_msg "feat: a renamed agent
 
-Co-Authored-By: John"
+$JOHN"
   assert_ok "a current agent on the default roster passes"
   commit_msg "feat: a terminated persona
 
 Co-Authored-By: CTO"
   assert_fails_with "missing the required trailer" "a terminated persona cannot claim authorship"
 
-  commit_msg "feat: trailer with an email
+  commit_msg "feat: house-style key
 
-Co-Authored-By: Atlas <atlas@qts.one>"
-  assert_ok "an agent trailer with an email suffix passes"
+$ATLAS"
+  assert_ok "a 'Co-authored-by' key is recognised"
+  commit_msg "feat: title-case key
 
-  commit_msg "feat: lowercase key
-
-Co-authored-by: Atlas"
-  assert_ok "a lowercase 'Co-authored-by' key is recognised"
+Co-Authored-By: ${ATLAS#Co-authored-by: }"
+  assert_ok "a 'Co-Authored-By' key is recognised"
   commit_msg "feat: shouting key
 
-CO-AUTHORED-BY: Atlas"
+CO-AUTHORED-BY: ${ATLAS#Co-authored-by: }"
   assert_ok "an uppercase 'CO-AUTHORED-BY' key is recognised"
 
   # A reference to the trailer in prose is not a trailer; only a line that starts with the
@@ -250,13 +323,14 @@ CO-AUTHORED-BY: Atlas"
 
 The rule asks for a Co-Authored-By: Claude line to be absent.
 
-Co-Authored-By: Atlas"
-  assert_ok "a mid-line mention of the key is not treated as a trailer"
+$ATLAS"
+  assert_ok "a mid-line mention of the key is not treated as a trailer" \
+    PR_BODY='The rule asks for no Co-authored-by: line in this body.'
 
   # What GitHub appends to a squash commit when the commit author is not the merger.
   commit_msg "feat: host identity
 
-Co-Authored-By: Atlas
+$ATLAS
 Co-authored-by: iulian <iulian@iulian-macbook.local>"
   assert_fails_with "neither an agent nor Paperclip" "a host-identity co-author fails under the default policy"
   assert_ok_with "::warning::" "a host-identity co-author only warns under extra-coauthor-policy=warn" \
@@ -279,7 +353,7 @@ Co-authored-by: iulian <iulian@iulian-macbook.local>"
   # First push of a branch: GitHub's all-zero `before` must check the head commit, not die.
   commit_msg "feat: first push on a new branch
 
-Co-Authored-By: Atlas"
+$ATLAS"
   assert_ok "an all-zero base-sha checks the head commit alone" \
     BASE_SHA=0000000000000000000000000000000000000000
   commit_msg "feat: first push, unattributed"
@@ -291,11 +365,11 @@ Co-Authored-By: Atlas"
   range_base="$(git -C "$REPO" rev-parse HEAD)"
   commit_msg "feat: one
 
-Co-Authored-By: Atlas"
+$ATLAS"
   commit_msg "feat: two, unattributed"
   commit_msg "feat: three
 
-Co-Authored-By: Warden"
+$WARDEN"
   assert_fails_with "missing the required trailer" "every commit in the range is checked, not only the head" \
     BASE_SHA="$range_base"
   assert_fails_with "across 3 commit(s)" "the range failure reports all three commits as checked" \

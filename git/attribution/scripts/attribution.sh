@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
 #
-# Enforce one attribution line on every commit in a range and on the PR body: exactly one
-# `Co-Authored-By: <Agent Name>` naming a known agent, and nothing else in that role.
+# Enforce attribution on every commit in a range and on the PR body. Each commit carries
+# exactly one `Co-authored-by: <Name> <email>` line matching a roster pair, and nothing else
+# in that role. The PR body carries no `Co-authored-by:` line at all: the squash puts the body
+# on `main`, and the merge step appends the one trailer read from the branch commits.
+#
+# ⚠️ A roster name with the wrong or no email is an error, not a pass: GitHub links a
+# co-author to an account only through the email, so `Co-authored-by: Atlas` alone credits
+# nobody.
 #
 # ⚠️ The checks run before the merge because the lines this rejects are written by tooling,
 # not by a person who can be asked to amend. GitHub appends a `Co-authored-by:` carrying the
@@ -83,6 +89,19 @@ list_contains() {
   return 1
 }
 
+# Sets ROSTER_INDEX to the position of $1 in ROSTER_NAMES, or -1.
+ROSTER_INDEX=-1
+roster_lookup() {
+  local i
+  ROSTER_INDEX=-1
+  for i in "${!ROSTER_NAMES[@]}"; do
+    [ "${ROSTER_NAMES[$i]}" = "$1" ] || continue
+    ROSTER_INDEX=$i
+    return 0
+  done
+  return 1
+}
+
 CHECK_LABEL=""
 CHECK_ERRORS=0
 CHECK_RESULT=""
@@ -102,17 +121,27 @@ target_error() {
   add_result "$2"
 }
 
-# Inspects one commit message or PR body. Sets CHECK_ERRORS, CHECK_RESULT and CHECK_AGENT
-# for the summary row the caller appends.
+# A shape the cut-over still tolerates: a warning while LEGACY_ACTIVE, an error after.
+target_legacy() {
+  if [ "${LEGACY_ACTIVE}" = "true" ]; then
+    emit_warning "${CHECK_LABEL}: $1 (pre-cut-over form, tolerated until ${LEGACY_UNTIL})"
+    add_result "warned: $2"
+  else
+    target_error "$1" "$2"
+  fi
+}
+
+# Inspects one commit message (kind `commit`) or PR body (kind `body`). Sets CHECK_ERRORS,
+# CHECK_RESULT and CHECK_AGENT for the summary row the caller appends.
 check_message() {
-  local label="$1" exempt="$2" message="$3"
+  local label="$1" exempt="$2" kind="$3" message="$4"
   CHECK_LABEL="${label}"
   CHECK_ERRORS=0
   CHECK_RESULT=""
   CHECK_AGENT=""
 
   local agent_hits=0 agent_lines="" paperclip_hits=0 extra_lines=""
-  local line lead trimmed lower_key value name lower_name is_vendor needle
+  local line lead trimmed lower_key value name email lower_name is_vendor needle expected
 
   while IFS= read -r line; do
     is_vendor=0
@@ -134,8 +163,13 @@ check_message() {
 
     value="$(trim "${trimmed#*:}")"
     name="${value}"
+    email=""
     case "${name}" in
-      *'<'*) name="$(trim "${name%%<*}")" ;;
+      *'<'*)
+        name="$(trim "${value%%<*}")"
+        email="${value#*<}"
+        email="$(lower "$(trim "${email%%>*}")")"
+        ;;
     esac
     lower_name="$(lower "${name}")"
 
@@ -144,7 +178,20 @@ check_message() {
       if [ "${is_vendor}" -eq 0 ]; then
         target_error "vendor attribution is not allowed: ${line}" "vendor attribution"
       fi
-    elif list_contains "${name}" "${AGENTS_LIST[@]}"; then
+    elif [ "${kind}" = "body" ]; then
+      if roster_lookup "${name}"; then
+        target_legacy "the PR body must not carry a Co-authored-by: line; the trailer goes in commit messages and the merge adds it: ${trimmed}" \
+          "trailer in PR body"
+      else
+        target_error "the PR body must not carry a Co-authored-by: line: ${trimmed}" "trailer in PR body"
+      fi
+    elif roster_lookup "${name}"; then
+      expected="Co-authored-by: ${name} <${ROSTER_EMAILS[$ROSTER_INDEX]}>"
+      if [ -z "${email}" ]; then
+        target_legacy "'${name}' has no email, so GitHub credits nobody; expected '${expected}'" "missing email"
+      elif [ "${email}" != "$(lower "${ROSTER_EMAILS[$ROSTER_INDEX]}")" ]; then
+        target_legacy "'${name}' carries the wrong email <${email}>; expected '${expected}'" "wrong email"
+      fi
       agent_hits=$((agent_hits + 1))
       if [ -n "${CHECK_AGENT}" ]; then
         CHECK_AGENT="${CHECK_AGENT}, ${name}"
@@ -164,10 +211,12 @@ check_message() {
     fi
   done <<< "${message}"
 
-  if [ "${exempt}" = "true" ]; then
+  if [ "${kind}" = "body" ]; then
+    :
+  elif [ "${exempt}" = "true" ]; then
     add_result "exempt author"
   elif [ "${agent_hits}" -eq 0 ]; then
-    target_error "missing the required trailer line 'Co-Authored-By: <Agent Name>', one of: ${AGENTS_SUMMARY}" \
+    target_error "missing the required trailer line 'Co-authored-by: <Name> <email>' for one of: ${AGENTS_SUMMARY} (pairs in the action's agents input)" \
       "missing agent trailer"
   elif [ "${agent_hits}" -gt 1 ]; then
     target_error "expected exactly one agent trailer, found ${agent_hits}: ${agent_lines}" \
@@ -212,9 +261,29 @@ add_row() {
 
 parse_list "${AGENTS:-}"
 [ "${#PARSED_LIST[@]}" -gt 0 ] || fatal "agents lists no names — refusing to accept every trailer"
-AGENTS_LIST=("${PARSED_LIST[@]}")
-AGENTS_SUMMARY="$(printf '%s, ' "${AGENTS_LIST[@]}")"
+ROSTER_NAMES=()
+ROSTER_EMAILS=()
+# In a variable because bash 3.2 and 5 disagree on quoting a regex literal after `=~`.
+roster_entry_re='^(.*[^[:space:]])[[:space:]]+<([^<>[:space:]]+@[^<>[:space:]]+)>$'
+for entry in "${PARSED_LIST[@]}"; do
+  [[ "${entry}" =~ ${roster_entry_re} ]] \
+    || fatal "agents entry '${entry}' is not 'Name <email>' — a name without its email credits nobody"
+  ROSTER_NAMES+=("${BASH_REMATCH[1]}")
+  ROSTER_EMAILS+=("${BASH_REMATCH[2]}")
+done
+AGENTS_SUMMARY="$(printf '%s, ' "${ROSTER_NAMES[@]}")"
 AGENTS_SUMMARY="${AGENTS_SUMMARY%, }"
+
+LEGACY_UNTIL="$(trim "${LEGACY_TRAILER_UNTIL:-}")"
+LEGACY_ACTIVE=false
+if [ -n "${LEGACY_UNTIL}" ]; then
+  [[ "${LEGACY_UNTIL}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] \
+    || fatal "legacy-trailer-until must be a YYYY-MM-DD date or empty, got '${LEGACY_UNTIL}'"
+  # ISO dates order lexically, so a string comparison is a date comparison.
+  if [[ "$(date -u +%Y-%m-%d)" < "${LEGACY_UNTIL}" ]]; then
+    LEGACY_ACTIVE=true
+  fi
+fi
 
 parse_list "${EXEMPT_AUTHORS:-}"
 EXEMPT_LIST=()
@@ -269,14 +338,14 @@ while IFS= read -r sha; do
   if [ "${#EXEMPT_LIST[@]}" -gt 0 ] && list_contains "${author}" "${EXEMPT_LIST[@]}"; then
     exempt=true
   fi
-  check_message "${sha}" "${exempt}" "$(git log -1 --format='%B' "${sha}")"
+  check_message "${sha}" "${exempt}" commit "$(git log -1 --format='%B' "${sha}")"
   add_row "\`${sha:0:9}\`" "${author}" "${CHECK_AGENT:-—}" "${CHECK_RESULT}"
 done <<< "${commits}"
 
 body_checked=0
 if [ -n "$(trim "${pr_body}")" ]; then
   body_checked=1
-  check_message "PR body" "false" "${pr_body}"
+  check_message "PR body" "false" body "${pr_body}"
   add_row "PR body" "—" "${CHECK_AGENT:-—}" "${CHECK_RESULT}"
 fi
 

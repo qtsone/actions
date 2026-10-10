@@ -9,6 +9,8 @@ on:
     paths:
       - 'git/attribution/**'
       - 'tests/scripts/test_attribution.sh'
+      - 'scripts/squash-merge.sh'
+      - 'tests/scripts/test_squash_merge.sh'
       - '.github/workflows/test-git-attribution.yml'
 
 # See test-docker-actions.yml: nothing here needs a token — the jobs read the checkout, run
@@ -28,21 +30,27 @@ jobs:
       - name: Execute attribution behaviour tests
         run: bash tests/scripts/test_attribution.sh
 
+      - name: Execute squash-merge behaviour tests
+        run: bash tests/scripts/test_squash_merge.sh
+
       - name: Lint action scripts
         run: |
           set -euo pipefail
           shellcheck -s bash \
             git/attribution/scripts/attribution.sh \
-            tests/scripts/test_attribution.sh
+            tests/scripts/test_attribution.sh \
+            scripts/squash-merge.sh \
+            tests/scripts/test_squash_merge.sh
 
-      - name: Verify action script is executable
+      - name: Verify scripts are executable
         run: |
           set -euo pipefail
-          script="git/attribution/scripts/attribution.sh"
-          if [ ! -x "${script}" ]; then
-            echo "${script} is not executable; composite actions invoke it directly" >&2
-            exit 1
-          fi
+          for script in git/attribution/scripts/attribution.sh scripts/squash-merge.sh; do
+            if [ ! -x "${script}" ]; then
+              echo "${script} is not executable; it is invoked directly" >&2
+              exit 1
+            fi
+          done
 
   validate-action-metadata:
     name: Validate action metadata contract
@@ -60,7 +68,15 @@ jobs:
           set -euo pipefail
           actual=$(yq -r '.inputs.agents.default' git/attribution/action.yaml \
             | sed '/^[[:space:]]*$/d' | tr '\n' ',')
-          expected="Zeus,Lex,John,Anvil,Casa,Relay,Atlas,Sentinel,Warden,"
+          expected="Zeus <340610040+qts-zeus[bot]@users.noreply.github.com>,"
+          expected+="Lex <340610672+qts-lex[bot]@users.noreply.github.com>,"
+          expected+="John <340610452+qts-john[bot]@users.noreply.github.com>,"
+          expected+="Anvil <340610824+qts-anvil[bot]@users.noreply.github.com>,"
+          expected+="Casa <340610943+qts-casa[bot]@users.noreply.github.com>,"
+          expected+="Relay <340611066+qts-relay[bot]@users.noreply.github.com>,"
+          expected+="Atlas <340611218+qts-atlas[bot]@users.noreply.github.com>,"
+          expected+="Sentinel <340611552+qts-sentinel[bot]@users.noreply.github.com>,"
+          expected+="Warden <340611405+qts-warden[bot]@users.noreply.github.com>,"
           [ "${actual}" = "${expected}" ] \
             || { echo "agents default is not the current agent roster: '${actual}'" >&2; exit 1; }
 
@@ -83,6 +99,7 @@ jobs:
 
           check_default allow-paperclip-trailer "false"
           check_default extra-coauthor-policy "fail"
+          check_default legacy-trailer-until "2026-10-24"
 
           # The three event-derived defaults are what make the zero-config call work, so they
           # are asserted too — but an Actions expression written literally in a workflow `run`
@@ -107,7 +124,7 @@ jobs:
 
           # Every input is optional by design: the PR defaults are the whole point, and a
           # required input would make the documented zero-config call fail.
-          for key in agents base-sha head-sha pr-body exempt-authors allow-paperclip-trailer extra-coauthor-policy; do
+          for key in agents legacy-trailer-until base-sha head-sha pr-body exempt-authors allow-paperclip-trailer extra-coauthor-policy; do
             required=$(yq -r ".inputs.\"${key}\".required // \"false\"" git/attribution/action.yaml)
             [ "${required}" = "false" ] || { echo "Input ${key} should be optional" >&2; exit 1; }
           done

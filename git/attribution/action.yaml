@@ -1,24 +1,34 @@
 name: "Git Attribution"
-description: "Require exactly one Co-Authored-By: <Agent Name> line on every commit and the PR body, and reject vendor or host-identity attribution"
+description: "Require exactly one roster Co-authored-by: <Name> <email> line on every commit, none in the PR body, and reject vendor or host-identity attribution"
 inputs:
   agents:
     description: >-
-      Newline-separated agent names accepted in the trailer. The value is compared exactly
-      after an optional ` <email>` suffix is stripped, so a name containing a space works.
-      An empty list is an error rather than "accept anything". The default is the current
-      agent roster from company file §7; a retired persona must be removed from it, or a
-      terminated identity can still claim authorship.
+      Newline-separated roster, one `Name <email>` per line. A commit trailer naming a roster
+      agent must carry exactly that email; the name is compared exactly, the email
+      case-insensitively. An entry without an email is an error, and so is an empty list.
+      The default is the nine attribution-only GitHub Apps (QTS-1381): the email is the bot
+      user's no-reply address, `<bot user id>+qts-<agent>[bot]@users.noreply.github.com`, with
+      the id from `gh api '/users/qts-<agent>%5Bbot%5D' -q .id` (not the app id). A retired
+      persona must be removed from it, or a terminated identity can still claim authorship.
     required: false
     default: |
-      Zeus
-      Lex
-      John
-      Anvil
-      Casa
-      Relay
-      Atlas
-      Sentinel
-      Warden
+      Zeus <340610040+qts-zeus[bot]@users.noreply.github.com>
+      Lex <340610672+qts-lex[bot]@users.noreply.github.com>
+      John <340610452+qts-john[bot]@users.noreply.github.com>
+      Anvil <340610824+qts-anvil[bot]@users.noreply.github.com>
+      Casa <340610943+qts-casa[bot]@users.noreply.github.com>
+      Relay <340611066+qts-relay[bot]@users.noreply.github.com>
+      Atlas <340611218+qts-atlas[bot]@users.noreply.github.com>
+      Sentinel <340611552+qts-sentinel[bot]@users.noreply.github.com>
+      Warden <340611405+qts-warden[bot]@users.noreply.github.com>
+  legacy-trailer-until:
+    description: >-
+      Cut-over grace, a UTC `YYYY-MM-DD`. Before that day the pre-cut-over shapes only warn:
+      a roster name with no or another email in a commit, and a roster trailer in the PR body.
+      From that day they fail. Empty disables the grace. Exists so pull requests opened under
+      the old `Co-Authored-By: <Name>` rule can merge; it is deleted once the date passes.
+    required: false
+    default: "2026-10-24"
   base-sha:
     description: >-
       Exclusive start of the range to check. Defaults to the pull request base; on `push`
@@ -54,9 +64,10 @@ inputs:
     default: "false"
   extra-coauthor-policy:
     description: >-
-      `fail` or `warn`, governing a `Co-authored-by:` line naming neither an agent nor
-      Paperclip — in practice the host identity GitHub appends to a squash commit when the
-      commit author differs from the merger.
+      `fail` or `warn`, governing a commit's `Co-authored-by:` line naming neither an agent
+      nor Paperclip — in practice the host identity GitHub appends to a squash commit when the
+      commit author differs from the merger. A `push`-on-`main` caller sets `warn`, because a
+      web-UI merge cannot suppress those lines. The PR body fails on any such line regardless.
     required: false
     default: "fail"
 runs:
@@ -69,6 +80,7 @@ runs:
       # the runner executes.
       env:
         AGENTS: ${{ inputs.agents }}
+        LEGACY_TRAILER_UNTIL: ${{ inputs.legacy-trailer-until }}
         BASE_SHA: ${{ inputs.base-sha }}
         HEAD_SHA: ${{ inputs.head-sha }}
         PR_BODY: ${{ inputs.pr-body }}
