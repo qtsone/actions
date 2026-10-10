@@ -43,6 +43,13 @@ inputs:
       build argument.
     required: false
     default: ""
+  secrets:
+    description: >-
+      Newline-separated `id=value` BuildKit secrets for `RUN --mount=type=secret,id=<id>`,
+      e.g. a registry token for a private package. Like `ssh`, the value reaches only that
+      RUN, never a layer, the layer cache or the image history, which a build argument does.
+    required: false
+    default: ""
   tag-latest:
     description: "Add latest for generated Docker Tag"
     required: false
@@ -147,6 +154,7 @@ runs:
         build-args: |
           ${{ inputs.build-args }}
         ssh: ${{ inputs.ssh }}
+        secrets: ${{ inputs.secrets }}
 
     - name: Derive action outputs
       id: derive-outputs

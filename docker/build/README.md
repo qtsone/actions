@@ -36,6 +36,7 @@ to `@v6` rather than `@v5`.
 | `context`           | Directory path for Docker build files. Typically the same as Dockerfile.    | `.`        |
 | `build-args`        | Additional build arguments for the Docker build command.                    | `''`       |
 | `ssh`               | SSH agent sockets or keys for `RUN --mount=type=ssh`, e.g. `default`.       | `''`       |
+| `secrets`           | Newline-separated `id=value` secrets for `RUN --mount=type=secret,id=<id>`. | `''`       |
 | `tag-latest`        | Add 'latest' tag to the generated Docker image.                             | `auto`     |
 | `tag-prefix`        | Add a prefix to the generated Docker image tag.                             | `''`       |
 | `tag-prefix-latest` | Add a prefix to the 'latest' Docker image tag.                              | `false`    |
