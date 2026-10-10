@@ -28,6 +28,7 @@ Reusable PR-preview readiness action for Docker workloads.
 | `dockerfile-path` | Dockerfile path | `Dockerfile` |
 | `context` | Docker build context | `.` |
 | `build-args` | Newline-separated Docker build args | `''` |
+| `ssh` | SSH agent sockets or keys for `RUN --mount=type=ssh`, e.g. `default` | `''` |
 | `preview-push-enabled` | Push preview image for eligible PRs | `true` |
 | `ready-label-enabled` | Manage ready label lifecycle | `true` |
 | `ready-label-name` | Label name to manage | `ready` |
