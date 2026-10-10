@@ -1,3 +1,10 @@
+# [1.9.0](https://github.com/qtsone/actions/compare/v1.8.0...v1.9.0) (2026-10-10)
+
+
+### Features
+
+* **docker/tests:** forward BuildKit SSH mounts through an ssh input (QTS-1340) ([#39](https://github.com/qtsone/actions/issues/39)) ([8d3d3aa](https://github.com/qtsone/actions/commit/8d3d3aaaae25068104867a6aa2e46ad320602f51)), closes [#36](https://github.com/qtsone/actions/issues/36) [qtsone/forge#766](https://github.com/qtsone/forge/issues/766)
+
 # [1.8.0](https://github.com/qtsone/actions/compare/v1.7.0...v1.8.0) (2026-10-10)
 
 
