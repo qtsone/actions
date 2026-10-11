@@ -1,3 +1,10 @@
+## [1.11.1](https://github.com/qtsone/actions/compare/v1.11.0...v1.11.1) (2026-10-11)
+
+
+### Bug Fixes
+
+* **squash-merge:** refuse a trailer that is not a roster pair (QTS-1466) ([#42](https://github.com/qtsone/actions/issues/42)) ([b2a0c37](https://github.com/qtsone/actions/commit/b2a0c378ec1acd48dc9b0536c25c32ed34c281d3))
+
 # [1.11.0](https://github.com/qtsone/actions/compare/v1.10.0...v1.11.0) (2026-10-10)
 
 
