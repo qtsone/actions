@@ -120,7 +120,7 @@ A pull request merged during the window with its body trailer goes through `scri
 GH_REPO=qtsone/<repo> scripts/squash-merge.sh <pr>
 ```
 
-Reads every branch commit through `gh pr view`. Each must carry exactly one `Co-authored-by:` line and all must carry the same one; a body that already carries one is refused too. Any of those stops with the reason and merges nothing. Otherwise it runs `gh pr merge <pr> --squash --match-head-commit <head> --body "<PR body>\n\nCo-authored-by: <trailer>"`. The explicit body is still needed: without it GitHub composes the message and appends its own `Co-authored-by:` lines. `--match-head-commit` makes a push after the read fail the merge rather than land unread commits. It does not re-check the roster; this action already did on the same commits. Needs `gh` and `jq`.
+Reads every branch commit through `gh pr view`. Each must carry exactly one `Co-authored-by:` line and all must carry the same one; a body that already carries one is refused too. Any of those stops with the reason and merges nothing. Otherwise it runs `gh pr merge <pr> --squash --match-head-commit <head> --body "<PR body>\n\nCo-authored-by: <trailer>"`. The explicit body is still needed: without it GitHub composes the message and appends its own `Co-authored-by:` lines. `--match-head-commit` makes a push after the read fail the merge rather than land unread commits. The trailer must also be exactly one line of this action's `agents` default, read from `qtsone/actions` `main` with `gh api`, so the merge and the check share one roster: no repository has a required status check, so a red `Attribution` run alone stops nothing (QTS-1466). Needs `gh` and `jq`.
 
 ## The `extra-coauthor-policy` input
 

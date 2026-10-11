@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 #
 # Behavioural tests for scripts/squash-merge.sh. A stub `gh` on PATH serves the pull request
-# JSON and records the merge call, so the refusal paths can prove that nothing was merged.
+# JSON and this checkout's git/attribution/action.yaml as the roster, and records the merge
+# call, so the refusal paths can prove that nothing was merged.
 
 set -euo pipefail
 
@@ -10,6 +11,8 @@ SCRIPT="$ROOT_DIR/scripts/squash-merge.sh"
 
 ATLAS='Co-authored-by: Atlas <340611218+qts-atlas[bot]@users.noreply.github.com>'
 WARDEN='Co-authored-by: Warden <340611405+qts-warden[bot]@users.noreply.github.com>'
+PAPERCLIP='Co-authored-by: Paperclip <noreply@paperclip.ing>'
+CLAUDE='Co-authored-by: Claude <noreply@anthropic.com>'
 HEAD_OID=d12e90bd7e7e7a4ee0ea01d63193c5eae11f4518
 
 FAILURES=0
@@ -23,6 +26,7 @@ cat > "$WORK/bin/gh" <<'EOF'
 #!/usr/bin/env bash
 case "$1 $2" in
   "pr view") cat "$STUB_PR_JSON" ;;
+  "api repos/qtsone/actions/contents/git/attribution/action.yaml") cat "$STUB_ACTION_YAML" ;;
   # One argument per line, NUL-free: enough to read back the --body value.
   "pr merge") printf '%s\n' "$@" > "$STUB_MERGE_LOG" ;;
   *) echo "stub gh: unexpected $*" >&2; exit 2 ;;
@@ -48,6 +52,7 @@ squash_merge() {
   rm -f "$WORK/merge.log"
   set +e
   LAST_OUT="$(PATH="$WORK/bin:$PATH" STUB_PR_JSON="$WORK/pr.json" STUB_MERGE_LOG="$WORK/merge.log" \
+    STUB_ACTION_YAML="$ROOT_DIR/git/attribution/action.yaml" \
     bash "$SCRIPT" 42 2>&1)"
   local rc=$?
   set -e
@@ -101,6 +106,15 @@ main() {
 
   pull_request 'Adds the thing.' $'feat: one\n\n'"$ATLAS"$'\n'"$WARDEN"
   assert_refuses "exactly one is allowed" "a commit with two trailers is refused"
+
+  pull_request 'Adds the thing.' $'feat: one\n\n'"$PAPERCLIP" $'fix: two\n\n'"$PAPERCLIP"
+  assert_refuses "not a roster pair" "a Paperclip-only branch is refused"
+
+  pull_request 'Adds the thing.' $'feat: one\n\n'"$CLAUDE"
+  assert_refuses "not a roster pair" "a Claude-only branch is refused"
+
+  pull_request 'Adds the thing.' $'feat: one\n\nCo-authored-by: Atlas <atlas@example.com>'
+  assert_refuses "not a roster pair" "a roster name with another email is refused"
 
   pull_request $'Adds the thing.\n\n'"$ATLAS" $'feat: one\n\n'"$ATLAS"
   assert_refuses "PR body already carries" "a PR body that already carries a trailer is refused"
