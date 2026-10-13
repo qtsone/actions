@@ -1,5 +1,5 @@
 name: "Git Attribution"
-description: "On agent-account commits and PRs, require exactly one roster Co-authored-by: <Name> <email> line per commit, none in the PR body, and reject vendor or host-identity attribution"
+description: "On agent-account commits and PRs, require exactly one roster Co-authored-by: <Name> <email> line per commit, none in the PR body, a Conventional Commits PR title, and reject vendor or host-identity attribution"
 inputs:
   agents:
     description: >-
@@ -46,10 +46,17 @@ inputs:
       `push` caller wants. The Claude Code footer lands here more often than in a commit.
     required: false
     default: ${{ github.event.pull_request.body }}
+  pr-title:
+    description: >-
+      Title to check against `pr-title.ere`, the Conventional Commits subject semantic-release
+      reads: the squash puts the title on `main` as the commit subject, so it decides the
+      release. Checked only when `pr-author` is on `agent-logins`; empty skips the check.
+    required: false
+    default: ${{ github.event.pull_request.title }}
   pr-author:
     description: >-
-      Login of the pull request author. The body is checked only when it is on
-      `agent-logins`; empty (a `push` caller) skips the body check.
+      Login of the pull request author. The body and title are checked only when it is on
+      `agent-logins`; empty (a `push` caller) skips both.
     required: false
     default: ${{ github.event.pull_request.user.login }}
   agent-accounts:
@@ -94,15 +101,16 @@ runs:
   steps:
     - name: Check attribution
       shell: bash
-      # Passed as environment rather than interpolated into the `run` body: the PR body is
-      # attacker-controlled text, and `${{ }}` substitution would splice it into the script
-      # the runner executes.
+      # Passed as environment rather than interpolated into the `run` body: the PR body and
+      # title are attacker-controlled text, and `${{ }}` substitution would splice them into
+      # the script the runner executes.
       env:
         AGENTS: ${{ inputs.agents }}
         LEGACY_TRAILER_UNTIL: ${{ inputs.legacy-trailer-until }}
         BASE_SHA: ${{ inputs.base-sha }}
         HEAD_SHA: ${{ inputs.head-sha }}
         PR_BODY: ${{ inputs.pr-body }}
+        PR_TITLE: ${{ inputs.pr-title }}
         PR_AUTHOR: ${{ inputs.pr-author }}
         AGENT_ACCOUNTS: ${{ inputs.agent-accounts }}
         AGENT_LOGINS: ${{ inputs.agent-logins }}

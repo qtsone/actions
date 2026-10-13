@@ -1,0 +1,1 @@
+^(feat|fix|perf|refactor|docs|chore|test|ci|build|style|revert)(\([^)]+\))?: [^[:space:]].*$

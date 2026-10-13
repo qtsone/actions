@@ -6,7 +6,8 @@
 #
 # Refuses, and merges nothing, when a branch commit carries no `Co-authored-by:` line or more
 # than one, when the commits disagree on it, when it is not exactly a `Name <email>` pair from
-# the attribution roster, or when the PR body already carries one.
+# the attribution roster, when the PR body already carries one, or when the PR title is not a
+# Conventional Commits subject.
 #
 # The explicit --body is load-bearing: without it GitHub composes the message itself and
 # appends a `Co-authored-by:` line per distinct branch commit author, host identities included.
@@ -24,8 +25,17 @@ fatal() {
 [ "$#" -eq 1 ] || fatal "usage: squash-merge <pr>"
 pr="$1"
 
-view="$(gh pr view "${pr}" --json body,headRefOid,commits)" \
+view="$(gh pr view "${pr}" --json title,body,headRefOid,commits)" \
   || fatal "cannot read pull request ${pr}"
+
+# The squash puts the title on main as the commit subject, so it decides the release. The
+# pattern is git/attribution/pr-title.ere on qtsone/actions main, the file the check reads.
+title_re="$(gh api repos/qtsone/actions/contents/git/attribution/pr-title.ere \
+  -H 'Accept: application/vnd.github.raw')" || fatal "cannot read the PR title pattern from qtsone/actions"
+[ -n "${title_re}" ] || fatal "the PR title pattern from qtsone/actions is empty"
+title="$(jq -r '.title' <<< "${view}")"
+[[ "${title}" =~ ${title_re} ]] \
+  || fatal "PR title '${title}' is not a Conventional Commits subject, so semantic-release ships nothing from it. It must match ${title_re}, e.g. 'fix(auth): refresh expired sessions (QTS-123)'. A breaking change is a 'BREAKING CHANGE:' paragraph in the body, not '!'. Fix it with gh pr edit ${pr} --title."
 
 # One tab-separated row per commit: short sha, number of trailer lines, the first one's value.
 rows="$(jq -r '

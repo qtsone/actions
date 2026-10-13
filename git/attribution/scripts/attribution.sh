@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 #
-# Enforce attribution on the agent-authored commits in a range and on an agent's PR body. Each
+# Enforce attribution on the agent-authored commits in a range and on an agent's PR body, and a
+# Conventional Commits title on an agent's PR, because the squash makes it the release subject. Each
 # such commit carries exactly one `Co-authored-by: <Name> <email>` line matching a roster pair,
 # and nothing else in that role. The PR body carries no `Co-authored-by:` line at all: the
 # squash puts the body on `main`, and the merge step appends the one trailer read from the
@@ -35,6 +36,10 @@ VENDOR_NEEDLES=(
   'noreply@anthropic.com'
   'Generated with [Claude Code]'
 )
+
+# The one definition of a title semantic-release's Angular analyzer reads. scripts/squash-merge.sh
+# fetches the same file from qtsone/actions main, so the check and the merge cannot disagree.
+TITLE_PATTERN_FILE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/pr-title.ere"
 
 # GitHub sends this as `before` for the first push of a branch: there is no range to walk.
 ZERO_SHA="0000000000000000000000000000000000000000"
@@ -313,7 +318,16 @@ esac
 base_sha="$(trim "${BASE_SHA:-}")"
 head_sha="$(trim "${HEAD_SHA:-}")"
 pr_body="${PR_BODY:-}"
+pr_title="${PR_TITLE:-}"
 pr_author="$(trim "${PR_AUTHOR:-}")"
+
+[ -s "${TITLE_PATTERN_FILE}" ] || fatal "cannot read the PR title pattern from ${TITLE_PATTERN_FILE}"
+title_re="$(cat "${TITLE_PATTERN_FILE}")"
+
+pr_by_agent=false
+if [ -n "${pr_author}" ] && list_contains "${pr_author}" "${AGENT_LOGIN_LIST[@]}"; then
+  pr_by_agent=true
+fi
 
 if [ -n "${base_sha}" ] && [ -z "${head_sha}" ]; then
   fatal "base-sha is set but head-sha is empty — the range to check is undefined"
@@ -333,8 +347,8 @@ fi
 
 # A check that inspected nothing and reported success is worse than no check: it reads as a
 # green tick on a PR whose range or body never reached the script.
-if [ -z "${commits}" ] && [ -z "$(trim "${pr_body}")" ]; then
-  fatal "nothing to check: the commit range is empty and pr-body is empty"
+if [ -z "${commits}" ] && [ -z "$(trim "${pr_body}")" ] && [ -z "$(trim "${pr_title}")" ]; then
+  fatal "nothing to check: the commit range, pr-body and pr-title are all empty"
 fi
 
 commit_count=0
@@ -355,13 +369,29 @@ done <<< "${commits}"
 
 body_checked=0
 if [ -n "$(trim "${pr_body}")" ]; then
-  if [ -n "${pr_author}" ] && list_contains "${pr_author}" "${AGENT_LOGIN_LIST[@]}"; then
+  if [ "${pr_by_agent}" = "true" ]; then
     body_checked=1
     check_message "PR body" body "${pr_body}"
     add_row "PR body" "${pr_author}" "${CHECK_AGENT:-—}" "${CHECK_RESULT}"
   else
     printf 'PR body (%s): skipped: not an agent account\n' "${pr_author:-no PR author}"
     add_row "PR body" "${pr_author:-—}" "—" "skipped: not an agent account"
+  fi
+fi
+
+title_checked=0
+if [ -n "$(trim "${pr_title}")" ]; then
+  if [ "${pr_by_agent}" = "true" ]; then
+    title_checked=1
+    if [[ "${pr_title}" =~ ${title_re} ]]; then
+      add_row "PR title" "${pr_author}" "—" "pass"
+    else
+      emit_error "PR title: '${pr_title}' is not a Conventional Commits subject, so semantic-release ships nothing from it. It must match ${title_re}, e.g. 'fix(auth): refresh expired sessions (QTS-123)'. A breaking change is a 'BREAKING CHANGE:' paragraph in the body, not '!'."
+      add_row "PR title" "${pr_author}" "—" "fail: not a Conventional Commits title"
+    fi
+  else
+    printf 'PR title (%s): skipped: not an agent account\n' "${pr_author:-no PR author}"
+    add_row "PR title" "${pr_author:-—}" "—" "skipped: not an agent account"
   fi
 fi
 
@@ -373,10 +403,10 @@ fi
 } >> "${GITHUB_STEP_SUMMARY:-/dev/stdout}"
 
 if [ "${ERRORS}" -gt 0 ]; then
-  printf 'attribution failed: %d error(s) across %d commit(s) and %d PR body\n' \
-    "${ERRORS}" "${commit_count}" "${body_checked}" >&2
+  printf 'attribution failed: %d error(s) across %d commit(s), %d PR body and %d PR title\n' \
+    "${ERRORS}" "${commit_count}" "${body_checked}" "${title_checked}" >&2
   exit 1
 fi
 
-printf 'attribution ok: %d commit(s) (%d skipped: not an agent account) and %d PR body checked, %d warning(s)\n' \
-  "${commit_count}" "${skipped_count}" "${body_checked}" "${WARNINGS}" >&2
+printf 'attribution ok: %d commit(s) (%d skipped: not an agent account), %d PR body and %d PR title checked, %d warning(s)\n' \
+  "${commit_count}" "${skipped_count}" "${body_checked}" "${title_checked}" "${WARNINGS}" >&2
