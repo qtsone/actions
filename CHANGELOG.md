@@ -1,3 +1,10 @@
+# [1.12.0](https://github.com/qtsone/actions/compare/v1.11.1...v1.12.0) (2026-10-13)
+
+
+### Features
+
+* **git/attribution:** fail non-conventional PR titles in the check and the merge script (QTS-1515) ([#43](https://github.com/qtsone/actions/issues/43)) ([c1b1eaa](https://github.com/qtsone/actions/commit/c1b1eaae8314931d39aa715cec8a997ecc99f562))
+
 ## [1.11.1](https://github.com/qtsone/actions/compare/v1.11.0...v1.11.1) (2026-10-11)
 
 
