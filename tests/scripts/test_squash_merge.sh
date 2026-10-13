@@ -27,6 +27,7 @@ cat > "$WORK/bin/gh" <<'EOF'
 case "$1 $2" in
   "pr view") cat "$STUB_PR_JSON" ;;
   "api repos/qtsone/actions/contents/git/attribution/action.yaml") cat "$STUB_ACTION_YAML" ;;
+  "api repos/qtsone/actions/contents/git/attribution/pr-title.ere") cat "$STUB_TITLE_PATTERN" ;;
   # One argument per line, NUL-free: enough to read back the --body value.
   "pr merge") printf '%s\n' "$@" > "$STUB_MERGE_LOG" ;;
   *) echo "stub gh: unexpected $*" >&2; exit 2 ;;
@@ -34,12 +35,14 @@ esac
 EOF
 chmod +x "$WORK/bin/gh"
 
-# Writes the stub's pull request: body $1, then one commit message per further argument.
+# Writes the stub's pull request titled $TITLE: body $1, then one commit message per further
+# argument.
+TITLE='feat(ui): add x (QTS-1)'
 pull_request() {
   local body="$1"
   shift
-  jq -n --arg body "$body" --arg head "$HEAD_OID" '
-    { body: $body, headRefOid: $head,
+  jq -n --arg title "$TITLE" --arg body "$body" --arg head "$HEAD_OID" '
+    { title: $title, body: $body, headRefOid: $head,
       commits: [ $ARGS.positional | to_entries[]
                  | { oid: ("c0ffee" + (.key | tostring) + "00000"),
                      messageHeadline: (.value | split("\n")[0]),
@@ -53,6 +56,7 @@ squash_merge() {
   set +e
   LAST_OUT="$(PATH="$WORK/bin:$PATH" STUB_PR_JSON="$WORK/pr.json" STUB_MERGE_LOG="$WORK/merge.log" \
     STUB_ACTION_YAML="$ROOT_DIR/git/attribution/action.yaml" \
+    STUB_TITLE_PATTERN="$ROOT_DIR/git/attribution/pr-title.ere" \
     bash "$SCRIPT" 42 2>&1)"
   local rc=$?
   set -e
@@ -118,6 +122,24 @@ main() {
 
   pull_request $'Adds the thing.\n\n'"$ATLAS" $'feat: one\n\n'"$ATLAS"
   assert_refuses "PR body already carries" "a PR body that already carries a trailer is refused"
+
+  # The squash makes the title the subject on main, and semantic-release ships nothing from a
+  # title its Angular analyzer cannot read. It does not read '!' either.
+  local title
+  for title in 'QTS-1: add x' 'security: x' 'feat!: x' 'Add x'; do
+    TITLE="$title"
+    pull_request 'Adds the thing.' $'feat: one\n\n'"$ATLAS"
+    assert_refuses "not a Conventional Commits subject" "the title '$title' is refused"
+  done
+  for title in 'feat(ui): add x (QTS-1)' 'fix: x' 'chore(release): 1.2.3'; do
+    TITLE="$title"
+    pull_request 'Adds the thing.' $'feat: one\n\n'"$ATLAS"
+    if squash_merge; then
+      pass "the title '$title' merges"
+    else
+      fail "the title '$title' was refused: $LAST_OUT"
+    fi
+  done
 
   if [[ $FAILURES -gt 0 ]]; then
     printf '\n%d squash-merge assertion(s) failed\n' "$FAILURES" >&2

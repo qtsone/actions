@@ -314,6 +314,26 @@ $ATLAS"
   assert_ok_with "skipped: not an agent account" "an empty pr-author skips the body check" \
     PR_AUTHOR='' PR_BODY=$'Adds the thing.\n\nCo-authored-by: someone <someone@example.invalid>'
 
+  # The squash makes the title the subject on main, so it decides the release; a title the
+  # Angular analyzer cannot read, '!' included, ships nothing.
+  local title
+  for title in 'QTS-1: add x' 'security: x' 'feat!: x' 'Add x'; do
+    assert_fails_with "not a Conventional Commits subject" "the PR title '$title' fails" PR_TITLE="$title"
+  done
+  assert_fails_with "fix(auth): refresh expired sessions (QTS-123)" "the title error gives a correct example" \
+    PR_TITLE='Add x'
+  for title in 'feat(ui): add x (QTS-1)' 'fix: x' 'chore(release): 1.2.3'; do
+    assert_ok "the PR title '$title' passes" PR_TITLE="$title"
+  done
+  # Scoped like the body: the owner's and the dependency bots' titles are theirs to choose.
+  local author
+  for author in ibacalu 'renovate[bot]' 'dependabot[bot]'; do
+    assert_ok_with "PR title ($author): skipped: not an agent account" "a $author PR title is not checked" \
+      PR_AUTHOR="$author" PR_TITLE='Update dependency x to v2'
+  done
+  assert_ok "a title alone is something to check" \
+    BASE_SHA="$(git -C "$REPO" rev-parse HEAD)" PR_TITLE='fix: x'
+
   # No name on the current roster contains a space, so this drives the capability through a
   # caller-supplied `agents` input — which is how a future multi-word name would arrive — and
   # not through a default-roster name that a re-org can delete.

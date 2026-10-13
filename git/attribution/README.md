@@ -23,7 +23,11 @@ For `pr-body`, when `pr-author` is an agent login:
 
 - Rejects **any** `Co-authored-by:` line, whoever it names.
 
-For both, rejects any line containing `noreply@anthropic.com` or `Generated with [Claude Code]`, and any `Co-Authored-By: Claude` trailer.
+For `pr-title`, when `pr-author` is an agent login:
+
+- Requires a Conventional Commits subject matching [`pr-title.ere`](pr-title.ere): `type(scope): summary`, type one of `feat fix perf refactor docs chore test ci build style revert`, scope optional. The squash puts the title on `main` as the commit subject, and semantic-release's default Angular analyzer ships nothing from a title it cannot read (QTS-1515). `feat!:` fails because that analyzer does not read `!`; a breaking change is a `BREAKING CHANGE:` paragraph in the body. `fix(auth): refresh expired sessions (QTS-123)` passes; `QTS-123: …`, `security: …` and plain English fail.
+
+For the commits and the body, rejects any line containing `noreply@anthropic.com` or `Generated with [Claude Code]`, and any `Co-Authored-By: Claude` trailer.
 
 Every failure is a `::error::` annotation naming the commit sha and the offending or missing line, and the action exits non-zero. A per-target result table goes to the step summary.
 
@@ -38,7 +42,8 @@ The trailer **key** is matched case-insensitively, so `Co-Authored-By:`, `Co-aut
 | `base-sha` | no | `github.event.pull_request.base.sha` | Exclusive start of the range. On `push`, pass `github.event.before`. |
 | `head-sha` | no | `github.event.pull_request.head.sha` | Inclusive end of the range. On `push`, pass `github.event.after`. |
 | `pr-body` | no | `github.event.pull_request.body` | Body text to check alongside the commits. Empty skips the body check. |
-| `pr-author` | no | `github.event.pull_request.user.login` | Login of the PR author. The body is checked only when it is on `agent-logins`; empty skips the body check. |
+| `pr-title` | no | `github.event.pull_request.title` | Title to check against `pr-title.ere`. Empty skips the title check. |
+| `pr-author` | no | `github.event.pull_request.user.login` | Login of the PR author. The body and title are checked only when it is on `agent-logins`; empty skips both. |
 | `agent-accounts` | no | the two agent accounts' addresses | Newline-separated author emails (`%ae`, case-insensitive). Only commits authored by one of them are checked. An empty list is an error. |
 | `agent-logins` | no | `qtsone-developer`, `qtsone-reviewer` | Newline-separated GitHub logins (case-insensitive) whose PR bodies are checked. An empty list is an error. |
 | `allow-paperclip-trailer` | no | `false` | When `true`, one `Co-Authored-By: Paperclip <noreply@paperclip.ing>` line is tolerated alongside the agent trailer. |
@@ -120,7 +125,7 @@ A pull request merged during the window with its body trailer goes through `scri
 GH_REPO=qtsone/<repo> scripts/squash-merge.sh <pr>
 ```
 
-Reads every branch commit through `gh pr view`. Each must carry exactly one `Co-authored-by:` line and all must carry the same one; a body that already carries one is refused too. Any of those stops with the reason and merges nothing. Otherwise it runs `gh pr merge <pr> --squash --match-head-commit <head> --body "<PR body>\n\nCo-authored-by: <trailer>"`. The explicit body is still needed: without it GitHub composes the message and appends its own `Co-authored-by:` lines. `--match-head-commit` makes a push after the read fail the merge rather than land unread commits. The trailer must also be exactly one line of this action's `agents` default, read from `qtsone/actions` `main` with `gh api`, so the merge and the check share one roster: no repository has a required status check, so a red `Attribution` run alone stops nothing (QTS-1466). Needs `gh` and `jq`.
+Reads the title and every branch commit through `gh pr view`. A title that does not match `git/attribution/pr-title.ere`, read from `qtsone/actions` `main` with `gh api`, is refused first, so the check and the merge share one pattern. Each must carry exactly one `Co-authored-by:` line and all must carry the same one; a body that already carries one is refused too. Any of those stops with the reason and merges nothing. Otherwise it runs `gh pr merge <pr> --squash --match-head-commit <head> --body "<PR body>\n\nCo-authored-by: <trailer>"`. The explicit body is still needed: without it GitHub composes the message and appends its own `Co-authored-by:` lines. `--match-head-commit` makes a push after the read fail the merge rather than land unread commits. The trailer must also be exactly one line of this action's `agents` default, read from `qtsone/actions` `main` with `gh api`, so the merge and the check share one roster: no repository has a required status check, so a red `Attribution` run alone stops nothing (QTS-1466). Needs `gh` and `jq`.
 
 ## The `extra-coauthor-policy` input
 
@@ -134,6 +139,7 @@ GitHub appends a `Co-authored-by:` line carrying the commit author's identity to
 | --- | --- |
 | No agent trailer on an agent-account commit | fails: `missing the required trailer line …` |
 | Roster name with no email, or another email, in a commit | fails, naming the expected line (warns before `legacy-trailer-until`) |
+| Agent PR title not matching `pr-title.ere` | fails: `not a Conventional Commits subject`, with the pattern and a correct example |
 | Any `Co-authored-by:` line in the PR body | fails (a roster name warns before `legacy-trailer-until`) |
 | `agents` entry without ` <email>` | fails: a name without its email credits nobody |
 | `legacy-trailer-until` not `YYYY-MM-DD` or empty | fails |
@@ -147,7 +153,7 @@ GitHub appends a `Co-authored-by:` line carrying the commit author's identity to
 | `extra-coauthor-policy` or `allow-paperclip-trailer` not one of its allowed values | fails |
 | `base-sha` set, `head-sha` empty | fails: the range is undefined |
 | `base-sha` not present locally | fails, naming `fetch-depth: 0` as the likely cause |
-| Empty range **and** empty `pr-body` | fails: a check that inspected nothing must not report success |
+| Empty range, empty `pr-body` **and** empty `pr-title` | fails: a check that inspected nothing must not report success |
 | `base-sha` all zeros | the head commit alone is checked — GitHub's `before` for the first push of a branch |
 
 A single line that matches both a vendor needle and the Claude trailer name is reported once, not twice.
@@ -162,7 +168,7 @@ A single line that matches both a vendor needle and the Claude trailer name is r
 
 ## Requirements
 
-- `types: [opened, synchronize, reopened, edited]` on the `pull_request` trigger. The default type list omits `edited`, and the PR body is an input.
+- `types: [opened, synchronize, reopened, edited]` on the `pull_request` trigger. The default type list omits `edited`, and the PR body and title are inputs: a title fixed with `gh pr edit --title` re-runs the check only through `edited`.
 - A checkout with `fetch-depth: 0`, so both ends of the range are in the object database.
 - `git` and `bash`. No network calls, no other tooling.
 - Permissions: `contents: read`.
@@ -170,7 +176,7 @@ A single line that matches both a vendor needle and the Claude trailer name is r
 
 ## Running it locally
 
-The script is callable outside Actions, which is how its behaviour tests drive it. Inputs come from the uppercased env vars (`AGENTS`, `LEGACY_TRAILER_UNTIL`, `BASE_SHA`, `HEAD_SHA`, `PR_BODY`, `PR_AUTHOR`, `AGENT_ACCOUNTS`, `AGENT_LOGINS`, `ALLOW_PAPERCLIP_TRAILER`, `EXTRA_COAUTHOR_POLICY`). With `GITHUB_STEP_SUMMARY` unset the result table goes to stdout:
+The script is callable outside Actions, which is how its behaviour tests drive it. Inputs come from the uppercased env vars (`AGENTS`, `LEGACY_TRAILER_UNTIL`, `BASE_SHA`, `HEAD_SHA`, `PR_BODY`, `PR_TITLE`, `PR_AUTHOR`, `AGENT_ACCOUNTS`, `AGENT_LOGINS`, `ALLOW_PAPERCLIP_TRAILER`, `EXTRA_COAUTHOR_POLICY`). With `GITHUB_STEP_SUMMARY` unset the result table goes to stdout:
 
 ```bash
 AGENTS=$'Atlas <340611218+qts-atlas[bot]@users.noreply.github.com>' \
