@@ -66,8 +66,10 @@ install_kustomize() {
   install_dir="${KUSTOMIZE_INSTALL_DIR:-${HOME}/.local/bin}"
   mkdir -p "${install_dir}"
 
-  curl -fsSL "${checksums_url}" -o "${checksum_file}"
-  curl -fsSL "${tarball_url}" -o "${archive}"
+  # GitHub's release CDN answers a transient 504 now and then, and one unretried miss
+  # here stopped a release after its image was already published (QTS-1545).
+  curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 "${checksums_url}" -o "${checksum_file}"
+  curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 "${tarball_url}" -o "${archive}"
 
   checksum_line="$(grep -E "^[a-f0-9]{64}[[:space:]]+${tarball_name}$" "${checksum_file}" || true)"
   if [[ -z "${checksum_line}" ]]; then
