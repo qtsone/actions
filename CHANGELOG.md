@@ -1,3 +1,10 @@
+## [1.12.1](https://github.com/qtsone/actions/compare/v1.12.0...v1.12.1) (2026-10-14)
+
+
+### Bug Fixes
+
+* **kustomize/update-image:** retry the kustomize download (QTS-1545) ([#44](https://github.com/qtsone/actions/issues/44)) ([d6b2a79](https://github.com/qtsone/actions/commit/d6b2a7965fcc2a3eb5f6d06009e0848ecde55315))
+
 # [1.12.0](https://github.com/qtsone/actions/compare/v1.11.1...v1.12.0) (2026-10-13)
 
 
