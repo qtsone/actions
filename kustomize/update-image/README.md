@@ -8,9 +8,18 @@ Reusable composite action that updates an app-owned production kustomize overlay
 - Default writeback target is direct push to `main` (`target-branch: main`).
 - If branch protection blocks direct pushes, use an alternate branch/PR flow in your calling workflow.
 
-## Concurrency Guidance
+## Moving target branch
 
-- Use per-release concurrency in caller workflows to avoid parallel writeback races, for example: `group: deploy-${{ github.ref_name }}` with `cancel-in-progress: true`.
+Release workflows usually check out the tag and build for minutes, so `target-branch` has often moved by the time the overlay is written: another merge, or a second release. On the commit path the action therefore never commits on the caller's checkout. Each attempt:
+
+1. fetches `target-branch` and checks it out detached, discarding tracked edits in the workspace;
+2. in `tag` mode, stops if the branch already deploys a higher semver tag for `image-name` (see below);
+3. writes the saved `extra-paths` contents back, runs `kustomize edit set image` and `kustomize build`;
+4. commits and pushes. A rejected push waits `attempt × 3` seconds and starts again from step 1, up to 5 attempts, then fails the step with `push conflict while updating <branch>`.
+
+Re-applying the edit on the fresh branch, rather than rebasing a commit, means a concurrent change to the same overlay never conflicts. After a successful run the checkout is left detached at the pushed commit, so a second call in the same job (one per image) starts from the first one's result.
+
+**No downgrade in `tag` mode.** Two overlapping releases can finish in either order. When both the branch's current `newTag` and `tag` are `MAJOR.MINOR.PATCH` (optional leading `v`, any suffix) and `tag` is lower, the run prints `Skipped: …`, sets `changed=false`, pushes nothing — `extra-paths` included — and exits `0`. Equal cores (a re-release or a pre-release of the deployed version) and non-semver tags (`sha-…`, `latest`) are not guarded. `digest` and `new-ref` mode carry no order, so callers that use them must serialise releases themselves.
 
 ## Inputs
 
@@ -95,7 +104,9 @@ Constraints, checked entry by entry before any commit or push:
 - Entries are resolved relative to the step's working directory, and blank lines are ignored.
 - The action only stages what it is given. Writing the files is the caller's job.
 
-A rejected entry fails the step. The overlay file has already been rewritten in the working tree at that point, but nothing has been committed or pushed.
+A rejected entry fails the step before anything is checked out, edited, committed or pushed.
+
+Each entry is captured as a whole file before the target branch is checked out and written back over the branch's copy on every attempt, so the caller's version wins over any concurrent change to that file.
 
 `extra-paths` is only staged on the commit path. Under `dry-run: true` or `commit: false` the entries are neither validated nor staged, and the reported `changed` covers `kustomization.yaml` alone.
 
@@ -114,10 +125,10 @@ A rejected entry fails the step. The overlay file has already been rewritten in 
 Behavior notes:
 
 - Always runs `kustomize build <overlay-path>` before any commit/push.
-- Without `extra-paths`, an overlay already at the target image is a no-op: no commit, `changed=false`, exit `0`.
+- Without `extra-paths`, an overlay whose target branch is already at the target image is a no-op: no commit, `changed=false`, exit `0`.
 - With `extra-paths`, an overlay already at the target image is not by itself a no-op. If a listed file differs from `HEAD` the commit is still made, so a companion value the caller rewrote is not stranded by a redundant image bump. The staged diff is the authority: when nothing is staged at all, the run exits successfully with `changed=false` and no commit.
 - When `commit: true`, the action configures local repository commit identity from `commit-user-name`/`commit-user-email` before `git commit`.
-- Push conflicts fail explicitly so callers can retry/rebase.
+- A rejected push is retried from a freshly fetched target branch; see [Moving target branch](#moving-target-branch).
 
 ## Release Flow Fit
 
