@@ -370,7 +370,7 @@ jobs:
           [ "${{ steps.skip_install_scenario.outputs.changed }}" = "true" ]
           [ "${{ steps.skip_install_scenario.outputs.target-ref }}" = "ghcr.io/qtsone/forge:new" ]
 
-      - name: Execute push-conflict scenario (script)
+      - name: Execute moved-target-branch scenario (script)
         run: |
           set -euo pipefail
 
@@ -445,7 +445,8 @@ jobs:
           git -C "${tmp_root}/work-b" commit -m "diverge"
           git -C "${tmp_root}/work-b" push origin main
 
-          set +e
+          # work-a is now behind main, as a release's tag checkout is once anything merges
+          # while its images build: the edit has to land on top of the diverged commit.
           (
             cd "${tmp_root}/work-a"
             OVERLAY_PATH="${tmp_root}/work-a/overlay" \
@@ -455,12 +456,11 @@ jobs:
             DRY_RUN="false" \
             TARGET_BRANCH="main" \
             bash "${GITHUB_WORKSPACE}/kustomize/update-image/scripts/update_image.sh"
-          ) >"${tmp_root}/run.log" 2>&1
-          rc=$?
-          set -e
+          ) >"${tmp_root}/run.log" 2>&1 || { cat "${tmp_root}/run.log"; exit 1; }
 
-          [ "${rc}" -ne 0 ]
-          grep -q 'push conflict while updating main; remote advanced, rebase and retry' "${tmp_root}/run.log"
+          grep -q 'Updated image to ghcr.io/qtsone/forge:new and pushed to main' "${tmp_root}/run.log"
+          git -C "${tmp_root}/remote.git" show main:overlay/kustomization.yaml | grep -q 'newTag: new'
+          [ "$(git -C "${tmp_root}/remote.git" log -1 --format=%s main~1)" = "diverge" ]
 
       - name: Run Task 1 shell tests
         run: |
