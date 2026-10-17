@@ -1,3 +1,10 @@
+## [1.12.2](https://github.com/qtsone/actions/compare/v1.12.1...v1.12.2) (2026-10-17)
+
+
+### Bug Fixes
+
+* **kustomize/update-image:** re-apply the image on a moved target branch and retry (QTS-1883) ([#45](https://github.com/qtsone/actions/issues/45)) ([ea8522a](https://github.com/qtsone/actions/commit/ea8522a6e17469e93587366eb0afdab742916e76)), closes [qtsone/agentic-os#547](https://github.com/qtsone/agentic-os/issues/547)
+
 ## [1.12.1](https://github.com/qtsone/actions/compare/v1.12.0...v1.12.1) (2026-10-14)
 
 
