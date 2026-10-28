@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 #
 # squash-merge <pr> — Warden's merge step. Squash-merges a pull request with the PR body as
-# the message and the one agent trailer from its branch commits appended, so `main` credits
-# the agent exactly once.
+# the message and one trailer per distinct branch agent appended in first-commit order, so
+# `main` credits every contributing agent exactly once.
 #
 # Refuses, and merges nothing, when a branch commit carries no `Co-authored-by:` line or more
-# than one, when the commits disagree on it, when it is not exactly a `Name <email>` pair from
-# the attribution roster, when the PR body already carries one, or when the PR title is not a
-# Conventional Commits subject.
+# than one, when any trailer is not exactly a `Name <email>` pair from the attribution roster,
+# when the PR body already carries one, or when the PR title is not a Conventional Commits
+# subject.
 #
 # The explicit --body is load-bearing: without it GitHub composes the message itself and
 # appends a `Co-authored-by:` line per distinct branch commit author, host identities included.
@@ -47,18 +47,14 @@ rows="$(jq -r '
 ' <<< "${view}")"
 [ -n "${rows}" ] || fatal "pull request ${pr} has no commits"
 
-trailer=""
+values=()
 while IFS=$'\t' read -r sha count value; do
   case "${count}" in
     0) fatal "commit ${sha} carries no Co-authored-by: line; amend it before merging" ;;
     1) ;;
     *) fatal "commit ${sha} carries ${count} Co-authored-by: lines; exactly one is allowed" ;;
   esac
-  if [ -z "${trailer}" ]; then
-    trailer="${value}"
-  elif [ "${value}" != "${trailer}" ]; then
-    fatal "branch commits disagree on the trailer: '${trailer}' vs '${value}' (commit ${sha})"
-  fi
+  values+=("${value}")
 done <<< "${rows}"
 
 # The roster is the `agents` input default of git/attribution on qtsone/actions main, so the merge
@@ -76,8 +72,21 @@ roster="$(gh api repos/qtsone/actions/contents/git/attribution/action.yaml \
       in_input && /^  [^ ]/ { in_input = 0 }
     ')" || fatal "cannot read the attribution roster from qtsone/actions"
 [ -n "${roster}" ] || fatal "the attribution roster from qtsone/actions is empty"
-printf '%s\n' "${roster}" | grep -qxF -- "${trailer}" \
-  || fatal "the trailer '${trailer}' is not a roster pair from git/attribution; amend the commits"
+trailers=("")
+for value in "${values[@]}"; do
+  printf '%s\n' "${roster}" | grep -qxF -- "${value}" \
+    || fatal "the trailer '${value}' is not a roster pair from git/attribution; amend the commits"
+  seen=false
+  for trailer in "${trailers[@]}"; do
+    if [ "${value}" = "${trailer}" ]; then
+      seen=true
+      break
+    fi
+  done
+  if [ "${seen}" = false ]; then
+    trailers+=("${value}")
+  fi
+done
 
 # GitHub stores a body edited in the browser with CRLF line ends.
 body="$(jq -r '.body // ""' <<< "${view}" | tr -d '\r')"
@@ -85,7 +94,7 @@ if printf '%s\n' "${body}" | grep -qiE '^[[:space:]]*co-authored-by:'; then
   fatal "the PR body already carries a Co-authored-by: line; remove it, the merge adds the trailer"
 fi
 
-message="Co-authored-by: ${trailer}"
+message="$(printf 'Co-authored-by: %s\n' "${trailers[@]:1}")"
 [ -z "${body}" ] || message="${body}"$'\n\n'"${message}"
 
 # --match-head-commit: the trailer was read from this head, so a push since then must not merge.

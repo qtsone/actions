@@ -1,5 +1,5 @@
 name: "Git Attribution"
-description: "On agent-account commits and PRs, require exactly one roster Co-authored-by: <Name> <email> line per commit, none in the PR body, a Conventional Commits PR title, and reject vendor or host-identity attribution"
+description: "Require one roster co-author per agent branch commit, distinct roster co-authors on main squashes, none in PR bodies, and a Conventional Commits PR title"
 inputs:
   agents:
     description: >-
@@ -91,9 +91,11 @@ inputs:
   extra-coauthor-policy:
     description: >-
       `fail` or `warn`, governing a commit's `Co-authored-by:` line naming neither an agent
-      nor Paperclip — in practice the host identity GitHub appends to a squash commit when the
-      commit author differs from the merger. A `push`-on-`main` caller sets `warn`, because a
-      web-UI merge cannot suppress those lines. The PR body fails on any such line regardless.
+      nor Paperclip. A `push`-on-`main` caller sets `warn` to tolerate GitHub-appended lines
+      whose name identifies a shared account or agent git author and whose email belongs to a
+      known agent account; unknown pairs still fail on `main`.
+      On branch commits, `warn` keeps its general warning behavior. The PR body fails on any
+      such line regardless.
     required: false
     default: "fail"
 runs:
