@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # renovate: datasource=github-releases depName=kubernetes-sigs/kustomize extractVersion=^kustomize/v(?<version>.+)$
-DEFAULT_KUSTOMIZE_VERSION="v5.8.1"
+DEFAULT_KUSTOMIZE_VERSION="v5.8.3"
 TEMP_DIR_TO_CLEANUP=""
 
 fail() {
