@@ -1,8 +1,8 @@
 # git/attribution
 
-Reusable composite action that enforces attribution on agent work: each commit an agent account authored carries exactly one `Co-authored-by: <Name> <email>` line matching a roster pair, the body of a pull request an agent account opened carries none, and nothing else takes that role.
+Reusable composite action that enforces attribution on agent work: each branch commit an agent account authored carries exactly one `Co-authored-by: <Name> <email>` line matching a roster pair. An agent squash commit on `main` may carry several distinct roster pairs, one per contributing agent. The body of a pull request an agent account opened carries none.
 
-The email is what makes the trailer work: GitHub shows a co-author (avatar and profile link) only when the email belongs to a GitHub account. The default roster is the nine attribution-only GitHub Apps (QTS-1381), one per agent, each with a bot user and a fixed no-reply address. The PR body carries no trailer because the squash puts the body on `main` and Warden's merge step (`scripts/squash-merge.sh`, below) appends the one trailer it reads from the branch commits.
+The email is what makes the trailer work: GitHub shows a co-author (avatar and profile link) only when the email belongs to a GitHub account. The default roster is the nine attribution-only GitHub Apps (QTS-1381), one per agent, each with a bot user and a fixed no-reply address. The PR body carries no trailer because the squash puts the body on `main` and Warden's merge step (`scripts/squash-merge.sh`, below) appends each distinct trailer it reads from the branch commits.
 
 > :warning: **Important**
 > The lines this rejects are written by tooling, not by a person who can be asked to amend. GitHub appends a host-identity `Co-authored-by:` to a squash commit whenever the commit author differs from the merger, and Claude Code appends its own trailer plus a `Generated with [Claude Code]` footer. Once either lands on `main` it is in the published history permanently, which is why the check runs before the merge.
@@ -13,11 +13,16 @@ Only agent work is checked (owner, QTS-1381). A commit is checked when its autho
 
 ## What it does
 
-For each agent-account commit in `base-sha..head-sha`:
+For each agent-account branch commit in `base-sha..head-sha`:
 
 - Requires **exactly one** `Co-authored-by:` line naming a roster agent, and that line must carry the roster email for the name. A roster name with another email or none fails.
 - Rejects `Co-Authored-By: Paperclip` unless `allow-paperclip-trailer` is `true`, which tolerates exactly one such line.
 - Treats any other `Co-authored-by:` line — in practice a human or host identity — per `extra-coauthor-policy`.
+
+For an agent-account squash commit on `main` (`pr-author` empty):
+
+- Requires at least one roster pair, permits distinct roster agents, and rejects the same agent twice.
+- Rejects non-roster pairs and vendor lines even when `extra-coauthor-policy` is `warn`. Under `warn`, a GitHub-appended line with a known shared-account or agent git author name and an agent-account email is tolerated with a warning.
 
 For `pr-body`, when `pr-author` is an agent login:
 
@@ -103,7 +108,7 @@ jobs:
           extra-coauthor-policy: warn
 ```
 
-`warn` on `push` because the owner merges in the browser, which has no `--body`: GitHub appends the agent trailer from the branch commits plus a `Co-authored-by:` per branch commit author, host identities included. The agent line still has to be the one roster pair; the host lines warn.
+`warn` on `push` because the owner merges in the browser, which has no `--body`: GitHub appends the agent trailers from the branch commits plus a `Co-authored-by:` per branch commit author. Distinct roster pairs pass, while repeated or unknown pairs fail. A known agent author's line with an agent-account email warns.
 
 `fetch-depth: 0` is not optional. The action walks `base..head` in the local object database, and a depth-1 clone contains neither end of that range; it fails with a message naming the fix rather than passing on an empty range.
 
@@ -125,13 +130,13 @@ A pull request merged during the window with its body trailer goes through `scri
 GH_REPO=qtsone/<repo> scripts/squash-merge.sh <pr>
 ```
 
-Reads the title and every branch commit through `gh pr view`. A title that does not match `git/attribution/pr-title.ere`, read from `qtsone/actions` `main` with `gh api`, is refused first, so the check and the merge share one pattern. Each must carry exactly one `Co-authored-by:` line and all must carry the same one; a body that already carries one is refused too. Any of those stops with the reason and merges nothing. Otherwise it runs `gh pr merge <pr> --squash --match-head-commit <head> --body "<PR body>\n\nCo-authored-by: <trailer>"`. The explicit body is still needed: without it GitHub composes the message and appends its own `Co-authored-by:` lines. `--match-head-commit` makes a push after the read fail the merge rather than land unread commits. The trailer must also be exactly one line of this action's `agents` default, read from `qtsone/actions` `main` with `gh api`, so the merge and the check share one roster: no repository has a required status check, so a red `Attribution` run alone stops nothing (QTS-1466). Needs `gh` and `jq`.
+Reads the title and every branch commit through `gh pr view`. A title that does not match `git/attribution/pr-title.ere`, read from `qtsone/actions` `main` with `gh api`, is refused first, so the check and the merge share one pattern. Each commit must carry exactly one roster `Co-authored-by:` line; a body that already carries one is refused too. Any of those stops with the reason and merges nothing. Otherwise it runs `gh pr merge <pr> --squash --match-head-commit <head> --body "<PR body>\n\n<one line per distinct branch agent>"`, in first-commit order. The explicit body is still needed: without it GitHub composes the message and appends its own `Co-authored-by:` lines. `--match-head-commit` makes a push after the read fail the merge rather than land unread commits. The roster is this action's `agents` default, read from `qtsone/actions` `main` with `gh api`, so the merge and the check share one list: no repository has a required status check, so a red `Attribution` run alone stops nothing (QTS-1466). Needs `gh` and `jq`.
 
 ## The `extra-coauthor-policy` input
 
 GitHub appends a `Co-authored-by:` line carrying the commit author's identity to a squash commit whenever that author differs from the person clicking merge. Where agents commit with a workstation git identity, that line leaks a hostname into public history, which is why `fail` is the default.
 
-`warn` exists for a repository whose `main` already carries such lines, so the check can be switched on to stop *new* ones before the backlog is cleaned up. It emits `::warning::` and keeps the exit status at zero.
+`warn` tolerates a GitHub-appended line carrying a known shared-account or agent git author name and an agent-account email on `main`; unknown pairs still fail. On branch commits it retains the general warning behavior. It emits `::warning::` and keeps the exit status at zero for tolerated lines.
 
 ## Failure modes
 
@@ -144,6 +149,9 @@ GitHub appends a `Co-authored-by:` line carrying the commit author's identity to
 | `agents` entry without ` <email>` | fails: a name without its email credits nobody |
 | `legacy-trailer-until` not `YYYY-MM-DD` or empty | fails |
 | More than one agent trailer | fails: `expected exactly one agent trailer, found N` |
+| Distinct roster trailers on an agent squash commit on `main` | passes, one per agent |
+| Duplicate roster trailer on `main` | fails: `duplicate agent trailer` |
+| Non-roster trailer on `main` | fails, even with `extra-coauthor-policy: warn` |
 | `noreply@anthropic.com`, `Generated with [Claude Code]`, or a `Co-Authored-By: Claude` trailer | fails: `vendor attribution is not allowed` |
 | `Co-Authored-By: Paperclip` with `allow-paperclip-trailer: false` | fails |
 | Two Paperclip trailers with `allow-paperclip-trailer: true` | fails: the input tolerates one |
@@ -162,7 +170,7 @@ A single line that matches both a vendor needle and the Claude trailer name is r
 
 - **Merge commits in the range are checked like any other commit.** A `git merge` commit carries a tooling-generated message with no trailer and will fail. The house convention is to rebase, so this does not normally arise; if a repository merges `main` into its PR branches, this action is the wrong shape for it as written.
 - **The trailer must start its line.** A mid-sentence mention — a PR body explaining the rule, say — is not read as a trailer. Leading whitespace is tolerated.
-- **Only the commits in the range are checked, and the squash message is neither of them.** A squash merge composes a *new* message at merge time, and GitHub adds its co-author line then, so the pre-merge run cannot see it. What that body is composed *from* is the repository's `squash_merge_commit_message` setting, and the two values behave oppositely here. On `PR_BODY` the squash body **is** the PR body, so the `pr-body` check covers it, and `scripts/squash-merge.sh` appends the one trailer. On `COMMIT_MESSAGES` — GitHub's default — it is the concatenated commit messages, so an N-commit PR lands **N** copies of the agent trailer on `main`, exactly the duplicate this action rejects, and checking the PR body covers none of it. Either way, merge with `scripts/squash-merge.sh`, which passes the body explicitly. The `push`-on-`main` caller above is the only thing that observes the message that actually landed.
+- **Only the commits in the range are checked, and the squash message is neither of them.** A squash merge composes a *new* message at merge time, and GitHub adds its co-author line then, so the pre-merge run cannot see it. What that body is composed *from* is the repository's `squash_merge_commit_message` setting, and the two values behave oppositely here. On `PR_BODY` the squash body **is** the PR body, so the `pr-body` check covers it, and `scripts/squash-merge.sh` appends one trailer per distinct branch agent. On `COMMIT_MESSAGES` — GitHub's default — it is the concatenated commit messages, so an N-commit PR can land duplicate agent trailers on `main`, which this action rejects, and checking the PR body covers none of it. Either way, merge with `scripts/squash-merge.sh`, which passes the body explicitly. The `push`-on-`main` caller above is the only thing that observes the message that actually landed.
 - **The author email is not verified identity.** `%ae` is whatever the committer set, so a commit can leave scope by using another email. The check keeps honest agents on the rule; it is not a security boundary.
 - **Text that *describes* the rule trips it.** The vendor needles are matched as substrings on any line, so a commit message or PR body quoting `noreply@anthropic` + `.com` verbatim fails — as the first version of this action's own PR body did. That is the intended trade: the needles are cheap to match and should never legitimately appear in a commit message. Refer to them descriptively ("the anthropic noreply address", "the Claude Code footer") in prose, and keep the literals in files, which are never scanned.
 
@@ -172,7 +180,7 @@ A single line that matches both a vendor needle and the Claude trailer name is r
 - A checkout with `fetch-depth: 0`, so both ends of the range are in the object database.
 - `git` and `bash`. No network calls, no other tooling.
 - Permissions: `contents: read`.
-- On a repository that squash-merges: every merge through `scripts/squash-merge.sh`, so `main` gets the inspected body plus exactly one trailer. See Limits.
+- On a repository that squash-merges: every merge through `scripts/squash-merge.sh`, so `main` gets the inspected body plus one trailer per distinct branch agent. See Limits.
 
 ## Running it locally
 

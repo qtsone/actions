@@ -11,6 +11,8 @@ SCRIPT="$ROOT_DIR/scripts/squash-merge.sh"
 
 ATLAS='Co-authored-by: Atlas <340611218+qts-atlas[bot]@users.noreply.github.com>'
 WARDEN='Co-authored-by: Warden <340611405+qts-warden[bot]@users.noreply.github.com>'
+ANVIL='Co-authored-by: Anvil <340610824+qts-anvil[bot]@users.noreply.github.com>'
+JOHN='Co-authored-by: John <340610452+qts-john[bot]@users.noreply.github.com>'
 PAPERCLIP='Co-authored-by: Paperclip <noreply@paperclip.ing>'
 CLAUDE='Co-authored-by: Claude <noreply@anthropic.com>'
 HEAD_OID=d12e90bd7e7e7a4ee0ea01d63193c5eae11f4518
@@ -102,8 +104,20 @@ main() {
     fi
   fi
 
-  pull_request 'Adds the thing.' $'feat: one\n\n'"$ATLAS" $'fix: two\n\n'"$WARDEN"
-  assert_refuses "disagree" "commits naming different agents are refused"
+  pull_request 'Adds the thing.' \
+    $'feat: one\n\n'"$ANVIL" \
+    $'fix: two\n\n'"$JOHN" \
+    $'fix: three\n\n'"$ANVIL"
+  if ! squash_merge; then
+    fail "two-agent branch merges (exit non-zero: $LAST_OUT)"
+  else
+    expected_body=$'Adds the thing.\n\n'"$ANVIL"$'\n'"$JOHN"
+    if [[ "$(cat "$WORK/merge.log")" == *$'--body\n'"$expected_body" ]]; then
+      pass "two-agent branch credits both once in first-commit order"
+    else
+      fail "two-agent squash body has wrong trailers: $(cat "$WORK/merge.log")"
+    fi
+  fi
 
   pull_request 'Adds the thing.' $'feat: one\n\n'"$ATLAS" $'fix: two\n\nNo trailer here.'
   assert_refuses "carries no Co-authored-by" "a commit with no trailer is refused"
@@ -113,6 +127,9 @@ main() {
 
   pull_request 'Adds the thing.' $'feat: one\n\n'"$PAPERCLIP" $'fix: two\n\n'"$PAPERCLIP"
   assert_refuses "not a roster pair" "a Paperclip-only branch is refused"
+
+  pull_request 'Adds the thing.' $'feat: one\n\n'"$ANVIL" $'fix: two\n\n'"$PAPERCLIP"
+  assert_refuses "not a roster pair" "a non-roster trailer after a valid agent is refused"
 
   pull_request 'Adds the thing.' $'feat: one\n\n'"$CLAUDE"
   assert_refuses "not a roster pair" "a Claude-only branch is refused"

@@ -2,9 +2,9 @@
 #
 # Enforce attribution on the agent-authored commits in a range and on an agent's PR body, and a
 # Conventional Commits title on an agent's PR, because the squash makes it the release subject. Each
-# such commit carries exactly one `Co-authored-by: <Name> <email>` line matching a roster pair,
-# and nothing else in that role. The PR body carries no `Co-authored-by:` line at all: the
-# squash puts the body on `main`, and the merge step appends the one trailer read from the
+# branch commit carries exactly one `Co-authored-by: <Name> <email>` roster pair. An agent
+# squash commit on `main` may carry several distinct roster pairs, one per contributing agent.
+# The PR body carries no `Co-authored-by:` line: the merge step appends the trailers read from
 # branch commits. Commits and PRs by anyone else are not agent work and are skipped.
 #
 # ⚠️ Scope is decided by author email (`%ae`), never by name: `%an` is free text, so a name
@@ -100,6 +100,22 @@ list_contains() {
   return 1
 }
 
+# GitHub may append a branch author's identity to a web-UI squash. Accept only the known
+# shared account names or an agent's git author name, paired with an agent-account email.
+is_github_agent_author() {
+  local name="$1" email="$2" agent
+  list_contains "${email}" "${AGENT_ACCOUNT_LIST[@]}" || return 1
+  case "${name}" in
+    qtsone-developer | qtsone-reviewer) return 0 ;;
+    *' (QTS agent)')
+      agent="${name% (QTS agent)}"
+      roster_lookup "${agent}"
+      return $?
+      ;;
+  esac
+  return 1
+}
+
 # Sets ROSTER_INDEX to the position of $1 in ROSTER_NAMES, or -1.
 ROSTER_INDEX=-1
 roster_lookup() {
@@ -151,7 +167,8 @@ check_message() {
   CHECK_RESULT=""
   CHECK_AGENT=""
 
-  local agent_hits=0 agent_lines="" paperclip_hits=0 extra_lines=""
+  local agent_hits=0 agent_lines="" duplicate_lines="" paperclip_hits=0 extra_lines="" host_lines=""
+  local -a seen_agents=("")
   local line lead trimmed lower_key value name email lower_name is_vendor needle expected
 
   while IFS= read -r line; do
@@ -204,6 +221,11 @@ check_message() {
         target_legacy "'${name}' carries the wrong email <${email}>; expected '${expected}'" "wrong email"
       fi
       agent_hits=$((agent_hits + 1))
+      if [ "${MAIN_PUSH}" = true ] && list_contains "${name}" "${seen_agents[@]}"; then
+        duplicate_lines="${duplicate_lines} | ${trimmed}"
+      else
+        seen_agents+=("${name}")
+      fi
       if [ -n "${CHECK_AGENT}" ]; then
         CHECK_AGENT="${CHECK_AGENT}, ${name}"
         agent_lines="${agent_lines} | ${trimmed}"
@@ -214,7 +236,10 @@ check_message() {
     elif [ "${lower_name}" = "paperclip" ]; then
       paperclip_hits=$((paperclip_hits + 1))
     else
-      if [ -n "${extra_lines}" ]; then
+      if [ "${MAIN_PUSH}" = true ] && [ "${POLICY}" = warn ] && \
+        [ -n "${email}" ] && is_github_agent_author "${name}" "${email}"; then
+        host_lines="${host_lines} | ${trimmed}"
+      elif [ -n "${extra_lines}" ]; then
         extra_lines="${extra_lines} | ${trimmed}"
       else
         extra_lines="${trimmed}"
@@ -227,13 +252,17 @@ check_message() {
   elif [ "${agent_hits}" -eq 0 ]; then
     target_error "missing the required trailer line 'Co-authored-by: <Name> <email>' for one of: ${AGENTS_SUMMARY} (pairs in the action's agents input)" \
       "missing agent trailer"
-  elif [ "${agent_hits}" -gt 1 ]; then
+  elif [ "${MAIN_PUSH}" = true ] && [ -n "${duplicate_lines}" ]; then
+    target_error "duplicate agent trailer on main:${duplicate_lines}" "duplicate agent trailer"
+  elif [ "${MAIN_PUSH}" = false ] && [ "${agent_hits}" -gt 1 ]; then
     target_error "expected exactly one agent trailer, found ${agent_hits}: ${agent_lines}" \
       "duplicate agent trailer"
   fi
 
   if [ "${paperclip_hits}" -gt 0 ]; then
-    if [ "${ALLOW_PAPERCLIP}" = "true" ]; then
+    if [ "${MAIN_PUSH}" = true ]; then
+      target_error "'Co-Authored-By: Paperclip' is not a roster pair on main" "paperclip trailer"
+    elif [ "${ALLOW_PAPERCLIP}" = "true" ]; then
       if [ "${paperclip_hits}" -gt 1 ]; then
         target_error "allow-paperclip-trailer tolerates one 'Co-Authored-By: Paperclip' line, found ${paperclip_hits}" \
           "duplicate paperclip trailer"
@@ -245,12 +274,16 @@ check_message() {
   fi
 
   if [ -n "${extra_lines}" ]; then
-    if [ "${POLICY}" = "fail" ]; then
+    if [ "${POLICY}" = "fail" ] || [ "${MAIN_PUSH}" = true ]; then
       target_error "co-author naming neither an agent nor Paperclip: ${extra_lines}" "extra co-author"
     else
       emit_warning "${label}: co-author naming neither an agent nor Paperclip: ${extra_lines}"
       add_result "warned: extra co-author"
     fi
+  fi
+  if [ -n "${host_lines}" ]; then
+    emit_warning "${label}: GitHub-appended agent-account co-author:${host_lines}"
+    add_result "warned: GitHub-appended co-author"
   fi
 
   if [ "${CHECK_ERRORS}" -gt 0 ]; then
@@ -320,6 +353,8 @@ head_sha="$(trim "${HEAD_SHA:-}")"
 pr_body="${PR_BODY:-}"
 pr_title="${PR_TITLE:-}"
 pr_author="$(trim "${PR_AUTHOR:-}")"
+MAIN_PUSH=false
+[ -n "${pr_author}" ] || MAIN_PUSH=true
 
 [ -s "${TITLE_PATTERN_FILE}" ] || fatal "cannot read the PR title pattern from ${TITLE_PATTERN_FILE}"
 title_re="$(cat "${TITLE_PATTERN_FILE}")"

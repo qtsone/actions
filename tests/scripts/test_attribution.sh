@@ -87,11 +87,16 @@ attribution() {
   head="$(git -C "$REPO" rev-parse HEAD)"
   set +e
   LAST_OUT="$(
-    cd "$REPO" && env -u GITHUB_STEP_SUMMARY -u GITHUB_OUTPUT \
+    cd "$REPO" || exit 1
+    : > "$TEMP_DIR_TO_CLEANUP/summary"
+    env -u GITHUB_OUTPUT GITHUB_STEP_SUMMARY="$TEMP_DIR_TO_CLEANUP/summary" \
       AGENTS="$DEFAULT_AGENTS" AGENT_ACCOUNTS="$DEFAULT_AGENT_ACCOUNTS" \
       AGENT_LOGINS="$DEFAULT_AGENT_LOGINS" PR_AUTHOR=qtsone-developer LEGACY_TRAILER_UNTIL='' \
       BASE_SHA="$base" HEAD_SHA="$head" "$@" \
       bash "$ATTRIBUTION_SCRIPT" 2>&1
+    script_rc=$?
+    cat "$TEMP_DIR_TO_CLEANUP/summary"
+    exit "$script_rc"
   )"
   rc=$?
   set -e
@@ -268,13 +273,50 @@ Adds the thing.
 $ATLAS
 Co-authored-by: qtsone-developer <developer@qts.one>"
   assert_ok_with "::warning::" "GitHub-appended lines on a web-UI squash are tolerated on main" \
-    PR_BODY='' EXTRA_COAUTHOR_POLICY=warn
+    PR_AUTHOR='' PR_BODY='' EXTRA_COAUTHOR_POLICY=warn
   commit_msg "feat: merged by Warden (#100)
 
 Adds the thing.
 
 $ATLAS"
-  assert_ok "a Warden squash with the one appended trailer passes on main" PR_BODY=''
+  assert_ok "a Warden squash with the one appended trailer passes on main" PR_AUTHOR='' PR_BODY=''
+
+  commit_msg "feat: two agents on main (#101)
+
+Adds the thing.
+
+$JOHN
+$ATLAS"
+  assert_ok "a main squash with two distinct roster pairs passes" PR_AUTHOR='' PR_BODY=''
+  commit_msg "feat: duplicate on main (#102)
+
+$ATLAS
+$ATLAS"
+  assert_fails_with "duplicate agent trailer" "the same roster pair twice on main fails" PR_AUTHOR='' PR_BODY=''
+  commit_msg "feat: stranger on main (#103)
+
+$ATLAS
+Co-authored-by: stranger <stranger@example.invalid>"
+  assert_fails_with "extra co-author" "a non-roster pair beside a roster pair on main fails" \
+    PR_AUTHOR='' PR_BODY='' EXTRA_COAUTHOR_POLICY=warn
+  commit_msg "feat: spoofed host on main (#104)
+
+$ATLAS
+Co-authored-by: stranger <developer@qts.one>"
+  assert_fails_with "extra co-author" "a stranger using an agent-account email still fails on main" \
+    PR_AUTHOR='' PR_BODY='' EXTRA_COAUTHOR_POLICY=warn
+  commit_msg "feat: agent author on main (#105)
+
+$ATLAS
+Co-authored-by: Atlas (QTS agent) <developer@qts.one>"
+  assert_ok_with "::warning::" "a GitHub-appended agent git author is tolerated on main" \
+    PR_AUTHOR='' PR_BODY='' EXTRA_COAUTHOR_POLICY=warn
+  commit_msg "feat: Paperclip on main (#104)
+
+$ATLAS
+Co-authored-by: Paperclip <noreply@paperclip.ing>"
+  assert_fails_with "not a roster pair on main" "the Paperclip compatibility option cannot add a main co-author" \
+    PR_AUTHOR='' PR_BODY='' ALLOW_PAPERCLIP_TRAILER=true
 
   # Only agent work is checked (owner, QTS-1381). A person's or a bot's commit is skipped
   # whole, vendor lines included.

@@ -13,7 +13,7 @@ Collection of reusable GitHub Actions for standardized workflows.
 | `docker/promote` | Republish an image the registry already holds under release tags, no rebuild | Optional, on a content-id hit | `packages: write` (the job must also log in to the registry) |
 | `docker/build` | Build and push release image, emit canonical image outputs | Release-published gate, or a content-id miss | `packages: write` |
 | `kustomize/update-image` | Mutate overlay image reference and write back to Git | After image build output is available | `contents: write` |
-| `git/attribution` | Require one roster `Co-authored-by: <Name> <email>` line per commit, none in the PR body, and a Conventional Commits PR title; reject vendor and host-identity trailers. Warden merges with `scripts/squash-merge.sh` | `pull_request`, outside the delivery chain | None beyond `contents: read`; needs `fetch-depth: 0` so both ends of `base..head` are present |
+| `git/attribution` | Require one roster `Co-authored-by: <Name> <email>` line per branch commit, distinct roster lines on an agent squash on `main`, none in the PR body, and a Conventional Commits PR title. Warden merges with `scripts/squash-merge.sh` | `pull_request`, outside the delivery chain | None beyond `contents: read`; needs `fetch-depth: 0` so both ends of `base..head` are present |
 
 Release call order for app repositories is: `release -> docker/build -> kustomize/update-image`.
 
@@ -97,16 +97,16 @@ Content id for the tracked paths that can reach a build artifact, for content-ad
 
 ### Git Attribution Action
 
-Commit and PR attribution gate: exactly one `Co-Authored-By: <Agent Name>` line, and nothing else in that role.
+Commit and PR attribution gate: one roster `Co-authored-by: <Name> <email>` line per branch commit, and one line per distinct branch agent on the squash commit.
 
 **Location:** `qtsone/actions/git/attribution@main`
 
 **Contract highlights:**
 - Checks the agent-authored commits in `base-sha..head-sha` and an agent's PR body; defaults read the range and body straight off the `pull_request` event, so the zero-config call needs only a checkout.
-- Requires exactly one trailer naming an agent on the current roster, defaulted from company file §7 and declared only in `git/attribution/action.yaml`. The trailer key is matched case-insensitively; the name is matched exactly, with an optional ` <email>` suffix stripped.
+- Requires exactly one roster trailer on each branch commit, and distinct roster trailers on an agent squash commit on `main`. The roster is declared in `git/attribution/action.yaml`. The trailer key is matched case-insensitively; the name exactly and the required email case-insensitively.
 - Rejects `noreply@anthropic.com`, the `Generated with [Claude Code]` footer, and a `Co-Authored-By: Claude` trailer outright.
-- `allow-paperclip-trailer` (default `false`) tolerates one `Co-Authored-By: Paperclip` line, so reversing that decision is a one-line change in each caller.
-- `extra-coauthor-policy` (default `fail`) governs the host-identity `Co-authored-by:` line GitHub appends to a squash commit when the commit author differs from the merger; `warn` lets a repository with existing ones stop new ones first.
+- `allow-paperclip-trailer` (default `false`) tolerates one `Co-Authored-By: Paperclip` line on branch commits; `main` squashes still reject it.
+- `extra-coauthor-policy` (default `fail`) governs extra co-author lines. On `main`, `warn` tolerates a GitHub-appended known agent author identity and rejects other non-roster pairs.
 - `agent-accounts` (author emails) and `agent-logins` (PR authors) default to the two shared agent accounts; every other commit and PR body — the owner's, Renovate's — is skipped entirely.
 - Fails loudly rather than degrading: an empty agent list, an unparseable range, and an empty range with an empty body are all errors, because a check that inspected nothing must not render as a green tick.
 - Requires `fetch-depth: 0`; a shallow checkout fails with a message naming the fix.
