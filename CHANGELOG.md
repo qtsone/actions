@@ -1,3 +1,10 @@
+# [1.13.0](https://github.com/qtsone/actions/compare/v1.12.2...v1.13.0) (2026-10-28)
+
+
+### Features
+
+* **squash-merge:** credit every agent that committed on the branch (QTS-2608) ([#46](https://github.com/qtsone/actions/issues/46)) ([df8713b](https://github.com/qtsone/actions/commit/df8713b3c4d7bc87ef8d6901e536c72c5844cb58))
+
 ## [1.12.2](https://github.com/qtsone/actions/compare/v1.12.1...v1.12.2) (2026-10-17)
 
 
