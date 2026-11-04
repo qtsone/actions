@@ -37,18 +37,27 @@ esac
 EOF
 chmod +x "$WORK/bin/gh"
 
-# Writes the stub's pull request titled $TITLE: body $1, then one commit message per further
-# argument.
+AGENT_EMAIL='336271639+qtsone-developer@users.noreply.github.com'
+OWNER_EMAIL='ibacalu@icloud.com'
+
+# Writes the stub's pull request titled $TITLE and opened by $PR_AUTHOR: body $1, then one
+# commit message per further argument. $AUTHORS, space-separated, gives each commit's author
+# email in order; a commit past its end is authored by $AGENT_EMAIL.
 TITLE='feat(ui): add x (QTS-1)'
+PR_AUTHOR='qtsone-developer'
+AUTHORS=''
 pull_request() {
   local body="$1"
   shift
-  jq -n --arg title "$TITLE" --arg body "$body" --arg head "$HEAD_OID" '
-    { title: $title, body: $body, headRefOid: $head,
-      commits: [ $ARGS.positional | to_entries[]
-                 | { oid: ("c0ffee" + (.key | tostring) + "00000"),
-                     messageHeadline: (.value | split("\n")[0]),
-                     messageBody: (.value | split("\n")[1:] | join("\n")) } ] }
+  jq -n --arg title "$TITLE" --arg body "$body" --arg head "$HEAD_OID" --arg login "$PR_AUTHOR" \
+    --arg authors "$AUTHORS" --arg agent "$AGENT_EMAIL" '
+    ($authors | split(" ") | map(select(. != ""))) as $emails
+    | { title: $title, body: $body, headRefOid: $head, author: { login: $login },
+        commits: [ $ARGS.positional | to_entries[]
+                   | { oid: ("c0ffee" + (.key | tostring) + "00000"),
+                       authors: [ { email: ($emails[.key] // $agent) } ],
+                       messageHeadline: (.value | split("\n")[0]),
+                       messageBody: (.value | split("\n")[1:] | join("\n")) } ] }
   ' --args "$@" > "$WORK/pr.json"
 }
 
@@ -139,6 +148,48 @@ main() {
 
   pull_request $'Adds the thing.\n\n'"$ATLAS" $'feat: one\n\n'"$ATLAS"
   assert_refuses "PR body already carries" "a PR body that already carries a trailer is refused"
+
+  # The owner commits under their own account, and no roster trailer is honest for that.
+  PR_AUTHOR='ibacalu'
+  AUTHORS="$OWNER_EMAIL $OWNER_EMAIL"
+  pull_request $'## Summary\r\n\r\nOwner change.' $'fix: one\n\nNo trailer here.' 'chore: two'
+  if ! squash_merge; then
+    fail "an owner-only branch merges (exit non-zero: $LAST_OUT)"
+  elif [[ "$(cat "$WORK/merge.log")" == *$'--body\n## Summary\n\nOwner change.' ]] \
+    && ! grep -qi 'co-authored-by' "$WORK/merge.log"; then
+    pass "an owner-only branch merges with the PR body alone"
+  else
+    fail "owner-only squash body is not the bare PR body: $(cat "$WORK/merge.log")"
+  fi
+
+  AUTHORS="$OWNER_EMAIL"
+  pull_request 'Adds the thing.' $'fix: one\n\n'"$CLAUDE"$'\n'"$PAPERCLIP"
+  if squash_merge && ! grep -qi 'co-authored-by' "$WORK/merge.log"; then
+    pass "an owner commit is never refused for its trailers and adds none"
+  else
+    fail "an owner commit's trailers were checked or credited: $LAST_OUT"
+  fi
+
+  # Upper case: the agent-accounts match ignores case, as the Attribution check's does.
+  AUTHORS="$OWNER_EMAIL DEVELOPER@QTS.ONE"
+  pull_request 'Adds the thing.' 'fix: one' $'fix: two\n\nNo trailer here.'
+  assert_refuses "carries no Co-authored-by" "an agent commit with no trailer is refused on an owner PR"
+
+  AUTHORS="$OWNER_EMAIL $AGENT_EMAIL"
+  pull_request 'Adds the thing.' 'fix: one' $'fix: two\n\n'"$ATLAS"$'\n'"$WARDEN"
+  assert_refuses "exactly one is allowed" "an agent commit with two trailers is refused on an owner PR"
+
+  AUTHORS="$OWNER_EMAIL $AGENT_EMAIL"
+  pull_request 'Adds the thing.' $'fix: one\n\nNo trailer here.' $'fix: two\n\n'"$ANVIL"
+  if ! squash_merge; then
+    fail "a mixed owner and agent branch merges (exit non-zero: $LAST_OUT)"
+  elif [[ "$(cat "$WORK/merge.log")" == *$'--body\nAdds the thing.\n\n'"$ANVIL" ]]; then
+    pass "a mixed owner and agent branch credits only the agent"
+  else
+    fail "mixed squash body has wrong trailers: $(cat "$WORK/merge.log")"
+  fi
+  PR_AUTHOR='qtsone-developer'
+  AUTHORS=''
 
   # The squash makes the title the subject on main, and semantic-release ships nothing from a
   # title its Angular analyzer cannot read. It does not read '!' either.
