@@ -1,3 +1,10 @@
+## [1.13.1](https://github.com/qtsone/actions/compare/v1.13.0...v1.13.1) (2026-11-04)
+
+
+### Bug Fixes
+
+* **squash-merge:** hold only agent-account commits to the trailer rule (QTS-2814) ([#47](https://github.com/qtsone/actions/issues/47)) ([d797b10](https://github.com/qtsone/actions/commit/d797b10f96bf56859cbe18f56f8c4346f0a7668e)), closes [#1003](https://github.com/qtsone/actions/issues/1003) [#46](https://github.com/qtsone/actions/issues/46)
+
 # [1.13.0](https://github.com/qtsone/actions/compare/v1.12.2...v1.13.0) (2026-10-28)
 
 
