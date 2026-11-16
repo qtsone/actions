@@ -19,7 +19,7 @@ inputs:
   semantic-version:
     description: 'Semantic version for release.'
     # renovate: datasource=npm depName=semantic-release
-    default: '25.0.9'
+    default: '26.0.1'
     required: false
   debug:
     description: 'Debug flag for semantic release (optional).'
